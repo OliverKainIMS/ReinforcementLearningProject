@@ -191,7 +191,7 @@ class QNetwork(nn.Module):
 
     def __init__(self, obs_dim=N_OBS, n_actions=N_ACTIONS, hidden1=128, hidden2=128):
         super().__init__()
-      # 47 inputs → hidden layer 128 → ReLU → hidden layer 128 → ReLU → 25 outputs  
+      # example: 47 inputs → hidden layer 128 → ReLU → hidden layer 128 → ReLU → 25 outputs  
       self.net = nn.Sequential(
             nn.Linear(obs_dim, hidden1),
             nn.ReLU(),

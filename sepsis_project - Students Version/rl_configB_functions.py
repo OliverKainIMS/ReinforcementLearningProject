@@ -148,16 +148,19 @@ def evaluate_policy_b(agent, n_episodes=1000, seed=SEED, **env_kwargs):
         done       = False
         total_r    = 0.0
         steps      = 0
+      
+        # Check if that episode has noise and if it has missing features. The acute event can only appear during the episode, so it starts as False.
         ep_noisy   = info.get('noisy_episode', False)
         ep_missing = info.get('missing_features') is not None
         ep_acute   = False
 
         while not done:
+            # During evaluation, there is no exploration. The agent always chooses the action with the highest Q-value predicted by the network:
             action = agent.select_action(obs, greedy=True)
             obs, r, te, tr, info = env.step(action)
             total_r += r
             steps   += 1
-            done     = te or tr
+            done     = te or tr #te = died / survived; tr = reached limit
             if info.get('acute_event', False):
                 ep_acute = True
 
@@ -188,7 +191,8 @@ class QNetwork(nn.Module):
 
     def __init__(self, obs_dim=N_OBS, n_actions=N_ACTIONS, hidden1=128, hidden2=128):
         super().__init__()
-        self.net = nn.Sequential(
+      # 47 inputs → hidden layer 128 → ReLU → hidden layer 128 → ReLU → 25 outputs  
+      self.net = nn.Sequential(
             nn.Linear(obs_dim, hidden1),
             nn.ReLU(),
             nn.Linear(hidden1, hidden2),
@@ -204,11 +208,11 @@ class QNetwork(nn.Module):
 
 class ReplayBuffer:
     """
-    Uniform experience replay buffer for DQN.
+    Uniform experience replay buffer for DQN (stores past experiences).
 
     Stores (obs, action, reward, next_obs, done) transitions in a circular
     buffer and provides random mini-batch sampling to break the temporal
-    correlations that would otherwise bias gradient estimates.
+    correlations (caused by training with only consecutive steps) that would otherwise bias gradient estimates.
 
     Parameters
     ----------
@@ -323,7 +327,7 @@ class DQNAgent:
         self.online_net = QNetwork(obs_dim, n_actions, hidden1, hidden2).to(self.device)
         self.target_net = QNetwork(obs_dim, n_actions, hidden1, hidden2).to(self.device)
         self.target_net.load_state_dict(self.online_net.state_dict())
-        self.target_net.eval()
+        self.target_net.eval() # puts the target network into evaluation mode
 
         self.optimizer     = optim.Adam(self.online_net.parameters(), lr=lr)
         self.replay_buffer = ReplayBuffer(buffer_capacity)
@@ -343,11 +347,11 @@ class DQNAgent:
         int — action index in [0, 24]
         """
         if not greedy and np.random.rand() < self.epsilon:
-            return np.random.randint(self.n_actions)
+            return np.random.randint(self.n_actions) #exploration
         obs_t = torch.tensor(obs, dtype=torch.float32, device=self.device).unsqueeze(0)
         with torch.no_grad():
             q_vals = self.online_net(obs_t)
-        return int(q_vals.argmax(dim=1).item())
+        return int(q_vals.argmax(dim=1).item()) #exploitation
 
     def update(self):
         """
@@ -372,9 +376,12 @@ class DQNAgent:
         The target network is synced with the online network every
         `self.target_update` gradient steps.
         """
+        
+        # The model will only be trained when it has a sufficient number of experiences:
         if len(self.replay_buffer) < self.batch_size:
             return 0.0
-
+          
+        # Take mini-batch from memory:
         obs, actions, rewards, next_obs, dones = self.replay_buffer.sample(self.batch_size)
 
         obs_t      = torch.tensor(obs,      device=self.device)
@@ -400,13 +407,14 @@ class DQNAgent:
         self.optimizer.step()
 
         self.steps_done += 1
+        # Every 100 updates, copy the online version to the target:
         if self.steps_done % self.target_update == 0:
             self.target_net.load_state_dict(self.online_net.state_dict())
 
         return float(loss.item())
 
     def decay_epsilon(self):
-        """Apply one multiplicative epsilon decay step (called once per episode)."""
+        """Apply one multiplicative epsilon decay step (called once per episode), reducing exploration."""
         self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
 
 
@@ -556,6 +564,7 @@ def train_dqn(
         missing_eps.append(ep_missing)
         acute_eps.append(ep_acute)
 
+        # Print progress every 500 episodes if verbose = True:
         if verbose and (ep + 1) % 500 == 0:
             recent_ret  = np.mean(returns[-100:])
             recent_surv = np.mean(survivals[-100:])

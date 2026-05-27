@@ -88,7 +88,7 @@ class EvalMetricsB:
         """
         self.episode_returns.append(r)
         self.episode_lengths.append(length)
-        self.survival_flags.append(r > 0)
+        self.survival_flags.append(r > 0) # a patient can survive and have a return < 1 (treatment penalization), so if return > 0 => patient survived!
         self.noisy_flags.append(noisy)
         self.missing_flags.append(missing)
         self.acute_flags.append(acute)

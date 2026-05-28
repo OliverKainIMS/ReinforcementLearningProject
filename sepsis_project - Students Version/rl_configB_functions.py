@@ -1,21 +1,36 @@
 """
 rl_configB_functions.py
 =======================
-Helper functions for Configuration B: Deep Q-Network (DQN) on the
+Helper functions for Configuration B: DQN / Double DQN / PPO on the
 Clinical ICU-Sepsis environment with continuous observations.
 
 Contents
 --------
-  EvalMetricsB            – episode statistics tracker (extends Config A's EvalMetrics
-                            with wrapper-specific failure-mode flags)
-  evaluate_policy_b       – greedy evaluation of a DQN agent on make_clinical_env()
-  QNetwork                – feedforward Q-network  (47 → hidden → 25)
-  ReplayBuffer            – uniform circular experience replay buffer
-  DQNAgent                – Double-DQN agent with target network & ε-greedy exploration
-  train_dqn               – full training loop returning per-episode metrics
-  sample_params_b         – random hyperparameter sampler for DQN grid search
-  moving_average          – 1-D moving-average smoothing (shared plotting utility)
-  dqn_convergence_episode – estimate the episode at which training converged
+  EvalMetricsB              – episode statistics tracker
+  evaluate_policy_b         – greedy evaluation on make_clinical_env()
+  QNetwork                  – feedforward Q-network (47 → hidden → 25)
+  ActorCritic               – shared-trunk actor-critic network for PPO
+  ReplayBuffer              – uniform circular experience replay buffer
+  DQNAgent                  – DQN / Double-DQN agent (double=True for Double DQN)
+  PPOAgent                  – PPO agent with GAE
+  train_dqn                 – DQN / Double-DQN training loop
+  train_ppo                 – PPO training loop
+  run_optuna                – Optuna hyperparameter search for all three algorithms
+  sample_params_b           – legacy random hyperparameter sampler
+  moving_average            – causal moving average (preserves sequence length)
+  dqn_convergence_episode   – estimate convergence episode from returns
+  plot_return_curves        – comparison learning-curve plot (return)
+  plot_survival_curves      – comparison learning-curve plot (survival rate)
+
+Assignment notes
+----------------
+  DQN and Double DQN are off-policy value-based methods. Their two key knobs
+  are the **replay buffer size** (buffer_size) and the **target-network update
+  frequency** (target_update_freq). These are explicit parameters in train_dqn
+  and are included in the Optuna search space.
+
+  PPO is an on-policy policy-gradient method. It has no replay buffer and no
+  target network; its key knobs are rollout_length, clip_eps and gae_lambda.
 """
 
 import numpy as np
@@ -24,8 +39,17 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 from collections import deque
+import matplotlib.pyplot as plt
 
 from envs.wrappers import make_clinical_env
+
+try:
+    import optuna
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
+    _HAS_OPTUNA = True
+except ImportError:
+    optuna = None
+    _HAS_OPTUNA = False
 
 # ─── Shared constants ─────────────────────────────────────────────────────────
 
@@ -44,26 +68,6 @@ class EvalMetricsB:
     Extends the Config A EvalMetrics with wrapper-specific flags so that
     performance can be stratified by failure mode (noisy observations,
     missing features, acute events).
-
-    Attributes
-    ----------
-    episode_returns : list[float]
-        Total undiscounted return per episode.
-
-    episode_lengths : list[int]
-        Number of environment steps per episode.
-
-    survival_flags : list[bool]
-        True if the episode return was positive (patient survived).
-
-    noisy_flags : list[bool]
-        True if EpisodicNoisyObsEnv was active for that episode.
-
-    missing_flags : list[bool]
-        True if EpisodicMissingObsEnv was active for that episode.
-
-    acute_flags : list[bool]
-        True if AcuteEventEnv fired at least once during the episode.
     """
 
     def __init__(self):
@@ -75,35 +79,14 @@ class EvalMetricsB:
         self.acute_flags     = []
 
     def add(self, r, length, noisy=False, missing=False, acute=False):
-        """
-        Record results of one completed episode.
-
-        Parameters
-        ----------
-        r       : float — total undiscounted return
-        length  : int   — number of steps taken
-        noisy   : bool  — True if EpisodicNoisyObsEnv was active
-        missing : bool  — True if EpisodicMissingObsEnv was active
-        acute   : bool  — True if AcuteEventEnv fired at least once
-        """
         self.episode_returns.append(r)
         self.episode_lengths.append(length)
-        self.survival_flags.append(r > 0) # a patient can survive and have a return < 1 (treatment penalization), so if return > 0 => patient survived!
+        self.survival_flags.append(r > 0)
         self.noisy_flags.append(noisy)
         self.missing_flags.append(missing)
         self.acute_flags.append(acute)
 
     def summary(self):
-        """
-        Compute aggregate statistics over all recorded episodes.
-
-        Returns
-        -------
-        dict
-            - mean_return   : float — mean total return
-            - survival_rate : float — fraction of survived episodes
-            - mean_length   : float — mean episode length
-        """
         return {
             "mean_return":   np.mean(self.episode_returns),
             "survival_rate": np.mean(self.survival_flags),
@@ -113,31 +96,21 @@ class EvalMetricsB:
 
 def evaluate_policy_b(agent, n_episodes=1000, seed=SEED, **env_kwargs):
     """
-    Evaluate a trained DQN agent on the clinical ICU-Sepsis environment.
+    Evaluate a trained agent (DQN, Double DQN or PPO) on make_clinical_env().
 
-    The agent acts greedily (epsilon = 0) throughout evaluation.
-    Wrapper-specific flags are recorded so performance can be broken down
-    by failure mode (noisy observations, missing features, acute events).
+    All three algorithm types expose select_action(obs, greedy=True), so this
+    function works uniformly for DQNAgent and PPOAgent.
 
     Parameters
     ----------
-    agent       : DQNAgent
-        Trained agent exposing select_action(obs, greedy=True).
-
-    n_episodes  : int, optional
-        Number of evaluation roll-outs. Default is 1000.
-
-    seed        : int, optional
-        Master RNG seed for reproducibility. Default is SEED.
-
-    **env_kwargs :
-        Forwarded to make_clinical_env() — use for sensitivity analysis
-        (e.g. varying malfunction_prob, event_prob, etc.).
+    agent       : DQNAgent or PPOAgent
+    n_episodes  : int
+    seed        : int
+    **env_kwargs : forwarded to make_clinical_env() for sensitivity analysis.
 
     Returns
     -------
     EvalMetricsB
-        Object containing evaluation statistics for all episodes.
     """
     env = make_clinical_env(**env_kwargs)
     metrics = EvalMetricsB()
@@ -148,19 +121,16 @@ def evaluate_policy_b(agent, n_episodes=1000, seed=SEED, **env_kwargs):
         done       = False
         total_r    = 0.0
         steps      = 0
-      
-        # Check if that episode has noise and if it has missing features. The acute event can only appear during the episode, so it starts as False.
         ep_noisy   = info.get('noisy_episode', False)
         ep_missing = info.get('missing_features') is not None
         ep_acute   = False
 
         while not done:
-            # During evaluation, there is no exploration. The agent always chooses the action with the highest Q-value predicted by the network:
             action = agent.select_action(obs, greedy=True)
             obs, r, te, tr, info = env.step(action)
             total_r += r
             steps   += 1
-            done     = te or tr #te = died / survived; tr = reached limit
+            done     = te or tr
             if info.get('acute_event', False):
                 ep_acute = True
 
@@ -170,32 +140,28 @@ def evaluate_policy_b(agent, n_episodes=1000, seed=SEED, **env_kwargs):
     return metrics
 
 
-# ─── Neural Network ───────────────────────────────────────────────────────────
+# ─── Neural Networks ──────────────────────────────────────────────────────────
 
 class QNetwork(nn.Module):
     """
-    Feedforward Q-network mapping continuous observations to Q-values.
-
-    Architecture: obs_dim → Linear → ReLU → Linear → ReLU → Linear (n_actions)
-
-    The output layer has no activation — raw Q-value estimates are returned
-    so that argmax gives the greedy action.
+    Feedforward Q-network: obs (47) → hidden → ReLU → ... → Q-values (25).
 
     Parameters
     ----------
-    obs_dim   : int — input dimensionality (47 for Config B)
-    n_actions : int — number of discrete actions (25)
-    hidden1   : int — width of the first hidden layer
-    hidden2   : int — width of the second hidden layer
+    obs_dim   : int  – input dimensionality (47 for Config B)
+    n_actions : int  – number of discrete actions (25)
+    hidden1   : int  – width of the first hidden layer
+    hidden2   : int  – width of the second hidden layer
     """
 
     def __init__(self, obs_dim=N_OBS, n_actions=N_ACTIONS, hidden1=128, hidden2=128):
         super().__init__()
-      # example: 47 inputs → hidden layer 128 → ReLU → hidden layer 128 → ReLU → 25 outputs  
         self.net = nn.Sequential(
             nn.Linear(obs_dim, hidden1),
+            nn.LayerNorm(hidden1),
             nn.ReLU(),
             nn.Linear(hidden1, hidden2),
+            nn.LayerNorm(hidden2),
             nn.ReLU(),
             nn.Linear(hidden2, n_actions),
         )
@@ -204,53 +170,67 @@ class QNetwork(nn.Module):
         return self.net(x)
 
 
+class ActorCritic(nn.Module):
+    """
+    Shared-trunk actor-critic for PPO.
+
+    A common feature trunk feeds two separate heads:
+      * policy head → action logits (25) for Categorical distribution
+      * value  head → scalar state value estimate
+
+    Tanh activations are preferred for the PPO trunk as they bound the
+    feature magnitudes and produce smoother advantage estimates.
+
+    Parameters
+    ----------
+    obs_dim   : int
+    n_actions : int
+    hidden1   : int
+    hidden2   : int
+    """
+
+    def __init__(self, obs_dim=N_OBS, n_actions=N_ACTIONS, hidden1=128, hidden2=128):
+        super().__init__()
+        self.trunk = nn.Sequential(
+            nn.Linear(obs_dim, hidden1),
+            nn.LayerNorm(hidden1),
+            nn.Tanh(),
+            nn.Linear(hidden1, hidden2),
+            nn.LayerNorm(hidden2),
+            nn.Tanh(),
+        )
+        self.policy_head = nn.Linear(hidden2, n_actions)
+        self.value_head  = nn.Linear(hidden2, 1)
+
+    def forward(self, x):
+        z = self.trunk(x)
+        return self.policy_head(z), self.value_head(z).squeeze(-1)
+
+
 # ─── Experience Replay ────────────────────────────────────────────────────────
 
 class ReplayBuffer:
     """
-    Uniform experience replay buffer for DQN (stores past experiences).
+    Uniform circular experience-replay buffer for DQN / Double DQN.
 
-    Stores (obs, action, reward, next_obs, done) transitions in a circular
-    buffer and provides random mini-batch sampling to break the temporal
-    correlations (caused by training with only consecutive steps) that would otherwise bias gradient estimates.
+    Stores (obs, action, reward, next_obs, done) transitions and provides
+    random minibatch sampling to break temporal correlations in the training
+    data, which is essential for stable convergence of value-based methods.
 
     Parameters
     ----------
     capacity : int
-        Maximum number of transitions to store. Older entries are
-        evicted once capacity is reached. Default is 50,000.
+        Maximum number of transitions stored (the buffer_size hyperparameter).
+        Older entries are evicted once capacity is reached.
     """
 
     def __init__(self, capacity=50_000):
         self.buffer = deque(maxlen=capacity)
 
     def push(self, obs, action, reward, next_obs, done):
-        """
-        Append one transition to the buffer.
-
-        Parameters
-        ----------
-        obs      : np.ndarray — current 47-dim observation
-        action   : int        — action taken
-        reward   : float      — reward received
-        next_obs : np.ndarray — next 47-dim observation
-        done     : float      — 1.0 if terminal, 0.0 otherwise
-        """
         self.buffer.append((obs, action, reward, next_obs, done))
 
     def sample(self, batch_size):
-        """
-        Draw a random mini-batch without replacement.
-
-        Parameters
-        ----------
-        batch_size : int — number of transitions to sample
-
-        Returns
-        -------
-        tuple of np.ndarray
-            (obs, actions, rewards, next_obs, dones), each of length batch_size.
-        """
         batch = random.sample(self.buffer, batch_size)
         obs, actions, rewards, next_obs, dones = zip(*batch)
         return (
@@ -265,38 +245,30 @@ class ReplayBuffer:
         return len(self.buffer)
 
 
-# ─── DQN Agent ────────────────────────────────────────────────────────────────
+# ─── DQN / Double DQN Agent ───────────────────────────────────────────────────
 
 class DQNAgent:
     """
-    Double Deep Q-Network agent for the discrete-action, continuous-observation
+    DQN or Double DQN agent for the discrete-action, continuous-observation
     ICU-Sepsis environment.
 
-    Double DQN decouples action selection (online network) from action evaluation
-    (target network), reducing the Q-value overestimation bias of vanilla DQN.
+    Set ``double=True`` for Double DQN, which decouples action *selection*
+    (online network) from action *evaluation* (target network) to reduce the
+    Q-value overestimation bias present in vanilla DQN.
 
-    Key components
-    --------------
-    online_net    : QNetwork trained at every gradient step.
-    target_net    : QNetwork synced from online_net every `target_update` steps.
-    replay_buffer : ReplayBuffer holding recent (s, a, r, s', done) transitions.
-    epsilon       : current exploration probability, decayed after each episode.
+    Assignment focus hyperparameters
+    ---------------------------------
+    buffer_size        : replay buffer capacity — a too-small buffer causes
+                         catastrophic forgetting; a too-large one slows learning
+                         because old transitions stay in the buffer too long.
+    target_update_freq : gradient steps between online→target syncs — too
+                         frequent syncs reintroduce moving-target instability;
+                         too infrequent syncs slow learning.
 
     Parameters
     ----------
-    obs_dim         : int   — observation dimensionality (47)
-    n_actions       : int   — number of discrete actions (25)
-    lr              : float — Adam learning rate
-    gamma           : float — discount factor (1.0 for ICU-Sepsis)
-    epsilon_start   : float — initial exploration probability
-    epsilon_min     : float — minimum exploration probability after decay
-    epsilon_decay   : float — multiplicative per-episode decay factor
-    buffer_capacity : int   — replay buffer capacity
-    batch_size      : int   — mini-batch size for each gradient update
-    target_update   : int   — gradient steps between online→target syncs
-    hidden1         : int   — first hidden layer width
-    hidden2         : int   — second hidden layer width
-    device          : str   — 'cpu' or 'cuda'
+    double : bool
+        If True, use the Double DQN bootstrap target.
     """
 
     def __init__(
@@ -307,81 +279,67 @@ class DQNAgent:
         gamma=GAMMA,
         epsilon_start=1.0,
         epsilon_min=0.05,
-        epsilon_decay=0.995,
-        buffer_capacity=50_000,
+        buffer_size=50_000,
         batch_size=64,
-        target_update=100,
+        target_update_freq=100,
+        tau=0.005,
         hidden1=128,
         hidden2=128,
+        double=False,
         device='cpu',
     ):
-        self.n_actions     = n_actions
-        self.gamma         = gamma
-        self.epsilon       = epsilon_start
-        self.epsilon_min   = epsilon_min
-        self.epsilon_decay = epsilon_decay
-        self.batch_size    = batch_size
-        self.target_update = target_update
-        self.device        = torch.device(device)
+        self.n_actions          = n_actions
+        self.gamma              = gamma
+        self.epsilon            = epsilon_start
+        self.epsilon_min        = epsilon_min
+        self.batch_size         = batch_size
+        self.target_update_freq = target_update_freq
+        self.tau                = tau
+        self.buffer_size        = buffer_size
+        self.double             = double
+        self.device             = torch.device(device)
 
         self.online_net = QNetwork(obs_dim, n_actions, hidden1, hidden2).to(self.device)
         self.target_net = QNetwork(obs_dim, n_actions, hidden1, hidden2).to(self.device)
         self.target_net.load_state_dict(self.online_net.state_dict())
-        self.target_net.eval() # puts the target network into evaluation mode
+        self.target_net.eval()
 
         self.optimizer     = optim.Adam(self.online_net.parameters(), lr=lr)
-        self.replay_buffer = ReplayBuffer(buffer_capacity)
+        self.replay_buffer = ReplayBuffer(buffer_size)
         self.steps_done    = 0
 
     def select_action(self, obs, greedy=False):
         """
-        Choose an action using epsilon-greedy exploration.
+        Epsilon-greedy action selection.
 
         Parameters
         ----------
-        obs    : np.ndarray — current 47-dim observation
-        greedy : bool       — if True, always exploit (used during evaluation)
-
-        Returns
-        -------
-        int — action index in [0, 24]
+        greedy : bool  – if True (evaluation), always exploit.
         """
         if not greedy and np.random.rand() < self.epsilon:
-            return np.random.randint(self.n_actions) #exploration
-        obs_t = torch.tensor(obs, dtype=torch.float32, device=self.device).unsqueeze(0)
+            return int(np.random.randint(self.n_actions))
+        obs_t = torch.tensor(
+            np.array(obs, dtype=np.float32), device=self.device
+        ).unsqueeze(0)
         with torch.no_grad():
             q_vals = self.online_net(obs_t)
-        return int(q_vals.argmax(dim=1).item()) #exploitation
+        return int(q_vals.argmax(dim=1).item())
 
     def update(self):
         """
-        Sample a mini-batch and perform one Double-DQN gradient step.
+        Sample a minibatch and perform one gradient step.
 
-        The Double-DQN target is:
+        DQN target (vanilla):
+            y = r + γ · max_{a'} Q_target(s', a')
+
+        Double DQN target:
             y = r + γ · Q_target(s', argmax_{a'} Q_online(s', a'))
 
-        This separates action selection (online network) from value estimation
-        (target network), reducing Q-value overestimation.
-
-        Returns
-        -------
-        float
-            Huber loss for this update step.
-            Returns 0.0 if the replay buffer is not yet large enough.
-
-        Notes
-        -----
-        Gradient clipping (max_norm=10) stabilises training given the sparse,
-        delayed reward signal of the ICU-Sepsis environment.
-        The target network is synced with the online network every
-        `self.target_update` gradient steps.
+        Returns 0.0 if the buffer is not yet large enough to sample.
         """
-        
-        # The model will only be trained when it has a sufficient number of experiences:
         if len(self.replay_buffer) < self.batch_size:
             return 0.0
-          
-        # Take mini-batch from memory:
+
         obs, actions, rewards, next_obs, dones = self.replay_buffer.sample(self.batch_size)
 
         obs_t      = torch.tensor(obs,      device=self.device)
@@ -390,16 +348,16 @@ class DQNAgent:
         next_obs_t = torch.tensor(next_obs, device=self.device)
         dones_t    = torch.tensor(dones,    device=self.device)
 
-        # Current Q-values for the actions that were actually taken
         q_current = self.online_net(obs_t).gather(1, actions_t).squeeze(1)
 
-        # Double-DQN bootstrap: online network selects the action, target evaluates it
         with torch.no_grad():
-            next_actions = self.online_net(next_obs_t).argmax(dim=1, keepdim=True)
-            q_next       = self.target_net(next_obs_t).gather(1, next_actions).squeeze(1)
-            q_target     = rewards_t + self.gamma * q_next * (1.0 - dones_t)
+            if self.double:
+                next_actions = self.online_net(next_obs_t).argmax(dim=1, keepdim=True)
+                q_next = self.target_net(next_obs_t).gather(1, next_actions).squeeze(1)
+            else:
+                q_next = self.target_net(next_obs_t).max(dim=1).values
+            q_target = rewards_t + self.gamma * q_next * (1.0 - dones_t)
 
-        # Huber loss is more robust to outlier returns than MSE
         loss = nn.functional.smooth_l1_loss(q_current, q_target)
         self.optimizer.zero_grad()
         loss.backward()
@@ -407,124 +365,256 @@ class DQNAgent:
         self.optimizer.step()
 
         self.steps_done += 1
-        # Every 100 updates, copy the online version to the target:
-        if self.steps_done % self.target_update == 0:
-            self.target_net.load_state_dict(self.online_net.state_dict())
+        # Soft (Polyak) update every target_update_freq steps.
+        # Blending τ << 1 keeps the target changing slowly and smoothly,
+        # preventing the abrupt target jumps that cause Q-value instability.
+        if self.steps_done % self.target_update_freq == 0:
+            for tp, op in zip(self.target_net.parameters(),
+                               self.online_net.parameters()):
+                tp.data.copy_(self.tau * op.data + (1.0 - self.tau) * tp.data)
 
         return float(loss.item())
 
     def decay_epsilon(self):
-        """Apply one multiplicative epsilon decay step (called once per episode), reducing exploration."""
+        """Apply one multiplicative epsilon decay step (called once per episode)."""
         self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
 
 
-# ─── Training Loop ────────────────────────────────────────────────────────────
+# ─── PPO Agent ────────────────────────────────────────────────────────────────
+
+class PPOAgent:
+    """
+    Proximal Policy Optimisation with clipped objective and GAE.
+
+    Unlike DQN / Double DQN, PPO is **on-policy**: there is no replay buffer
+    and no target network. It collects fresh rollouts, computes generalised
+    advantage estimates (GAE), and runs several minibatch update epochs over
+    the collected data before discarding it.
+
+    Key hyperparameters
+    -------------------
+    rollout_length  : steps collected per policy update
+    update_epochs   : passes over each rollout
+    clip_eps        : PPO clipping parameter (keeps the update conservative)
+    gae_lambda      : GAE smoothing (λ=1 → full Monte-Carlo returns,
+                      λ=0 → pure TD, λ≈0.95 is a common sweet spot)
+    entropy_coef    : entropy bonus (encourages exploration)
+    """
+
+    def __init__(
+        self,
+        obs_dim=N_OBS,
+        n_actions=N_ACTIONS,
+        lr=3e-4,
+        gamma=GAMMA,
+        gae_lambda=0.95,
+        clip_eps=0.2,
+        entropy_coef=0.01,
+        value_coef=0.5,
+        rollout_length=1024,
+        update_epochs=10,
+        minibatch_size=128,
+        hidden1=128,
+        hidden2=128,
+        max_grad_norm=0.5,
+        device='cpu',
+    ):
+        self.gamma          = gamma
+        self.gae_lambda     = gae_lambda
+        self.clip_eps       = clip_eps
+        self.entropy_coef   = entropy_coef
+        self.value_coef     = value_coef
+        self.rollout_length = rollout_length
+        self.update_epochs  = update_epochs
+        self.minibatch_size = minibatch_size
+        self.max_grad_norm  = max_grad_norm
+        self.device         = torch.device(device)
+
+        self.net       = ActorCritic(obs_dim, n_actions, hidden1, hidden2).to(self.device)
+        self.optimizer = optim.Adam(self.net.parameters(), lr=lr)
+
+    def act(self, obs):
+        """
+        Sample an action for on-policy data collection.
+
+        Returns
+        -------
+        (int, float, float) – (action, log_prob, value_estimate)
+        """
+        obs_t = torch.tensor(
+            np.array(obs, dtype=np.float32), device=self.device
+        ).unsqueeze(0)
+        with torch.no_grad():
+            logits, value = self.net(obs_t)
+            dist     = torch.distributions.Categorical(logits=logits)
+            action   = dist.sample()
+            log_prob = dist.log_prob(action)
+        return int(action.item()), float(log_prob.item()), float(value.item())
+
+    def select_action(self, obs, greedy=True):
+        """Greedy or stochastic action selection for evaluation."""
+        obs_t = torch.tensor(
+            np.array(obs, dtype=np.float32), device=self.device
+        ).unsqueeze(0)
+        with torch.no_grad():
+            logits, _ = self.net(obs_t)
+            if greedy:
+                return int(logits.argmax(dim=1).item())
+            return int(torch.distributions.Categorical(logits=logits).sample().item())
+
+    def value(self, obs):
+        """Critic value estimate for bootstrapping at rollout boundaries."""
+        obs_t = torch.tensor(
+            np.array(obs, dtype=np.float32), device=self.device
+        ).unsqueeze(0)
+        with torch.no_grad():
+            _, v = self.net(obs_t)
+        return float(v.item())
+
+    def update(self, b_obs, b_actions, b_log_probs, b_returns, b_advantages):
+        """
+        PPO clipped-objective update over one collected rollout.
+
+        Advantage normalisation (zero mean, unit std) is applied before
+        the update to reduce variance and stabilise training.
+        """
+        obs_t  = torch.tensor(b_obs,        dtype=torch.float32, device=self.device)
+        acts_t = torch.tensor(b_actions,    dtype=torch.int64,   device=self.device)
+        old_lp = torch.tensor(b_log_probs,  dtype=torch.float32, device=self.device)
+        rets_t = torch.tensor(b_returns,    dtype=torch.float32, device=self.device)
+        adv_t  = torch.tensor(b_advantages, dtype=torch.float32, device=self.device)
+        adv_t  = (adv_t - adv_t.mean()) / (adv_t.std() + 1e-8)
+
+        n   = obs_t.shape[0]
+        idx = np.arange(n)
+        p_losses, v_losses, entropies, clip_fracs = [], [], [], []
+
+        for _ in range(self.update_epochs):
+            np.random.shuffle(idx)
+            for start in range(0, n, self.minibatch_size):
+                mb   = idx[start: start + self.minibatch_size]
+                mb_t = torch.as_tensor(mb, dtype=torch.int64, device=self.device)
+
+                logits, values = self.net(obs_t[mb_t])
+                dist    = torch.distributions.Categorical(logits=logits)
+                new_lp  = dist.log_prob(acts_t[mb_t])
+                entropy = dist.entropy().mean()
+
+                ratio = torch.exp(new_lp - old_lp[mb_t])
+                surr1 = ratio * adv_t[mb_t]
+                surr2 = torch.clamp(ratio, 1 - self.clip_eps, 1 + self.clip_eps) * adv_t[mb_t]
+                p_loss = -torch.min(surr1, surr2).mean()
+                v_loss = nn.functional.mse_loss(values, rets_t[mb_t])
+                loss   = p_loss + self.value_coef * v_loss - self.entropy_coef * entropy
+
+                self.optimizer.zero_grad()
+                loss.backward()
+                nn.utils.clip_grad_norm_(self.net.parameters(), self.max_grad_norm)
+                self.optimizer.step()
+
+                with torch.no_grad():
+                    clip_fracs.append(float(
+                        ((ratio - 1.0).abs() > self.clip_eps).float().mean()
+                    ))
+                p_losses.append(float(p_loss))
+                v_losses.append(float(v_loss))
+                entropies.append(float(entropy))
+
+        return {
+            'policy_loss':   float(np.mean(p_losses)),
+            'value_loss':    float(np.mean(v_losses)),
+            'entropy':       float(np.mean(entropies)),
+            'clip_fraction': float(np.mean(clip_fracs)),
+        }
+
+
+# ─── Training Loops ───────────────────────────────────────────────────────────
 
 def train_dqn(
-    n_episodes=3000,
+    n_episodes=50_000,
+    double=False,
     lr=1e-3,
     gamma=GAMMA,
     epsilon_start=1.0,
     epsilon_min=0.05,
-    epsilon_decay=0.995,
-    buffer_capacity=50_000,
+    exploration_fraction=0.05,
+    buffer_size=50_000,
     batch_size=64,
-    target_update=100,
+    target_update_freq=100,
+    gradient_steps=1,
     hidden1=128,
     hidden2=128,
+    learning_starts=1000,
     seed=SEED,
     device='cpu',
     verbose=False,
+    log_every=1000,
 ):
     """
-    Train a Double-DQN agent on the clinical ICU-Sepsis environment.
-
-    The agent interacts with make_clinical_env() (all three wrappers active),
-    stores transitions in a replay buffer, and trains the Q-network at every
-    environment step once the buffer has enough samples.
+    Train a DQN or Double DQN agent on the clinical ICU-Sepsis environment.
 
     Parameters
     ----------
-    n_episodes      : int, default=3000
-        Number of training episodes.
-
-    lr              : float, default=1e-3
-        Adam learning rate.
-
-    gamma           : float, default=GAMMA
-        Discount factor for future rewards.
-
-    epsilon_start   : float, default=1.0
-        Initial exploration probability for epsilon-greedy policy.
-
-    epsilon_min     : float, default=0.05
-        Minimum exploration rate after decay.
-
-    epsilon_decay   : float, default=0.995
-        Multiplicative decay applied to epsilon after each episode.
-
-    buffer_capacity : int, default=50_000
-        Maximum number of transitions stored in the replay buffer.
-
-    batch_size      : int, default=64
-        Mini-batch size for each gradient update step.
-
-    target_update   : int, default=100
-        Number of gradient steps between target-network synchronisations.
-
-    hidden1         : int, default=128
-        Width of the first hidden layer of the Q-network.
-
-    hidden2         : int, default=128
-        Width of the second hidden layer of the Q-network.
-
-    seed            : int, default=SEED
-        RNG seed applied to Python, NumPy, and PyTorch.
-
-    device          : str, default='cpu'
-        Torch device string ('cpu' or 'cuda').
-
-    verbose         : bool, default=False
-        If True, print a progress summary every 500 episodes.
+    double : bool
+        False → vanilla DQN; True → Double DQN (default False).
+    exploration_fraction : float
+        Fraction of n_episodes over which epsilon decays linearly from
+        epsilon_start to epsilon_min. Kept small (0.05) because this
+        environment already has high stochasticity from the clinical wrappers
+        — excessive exploration just adds noise to Q-value estimates without
+        discovering meaningfully different states.
+    gradient_steps : int
+        Number of gradient updates per environment step. Values > 1 improve
+        sample efficiency at the cost of more compute per step.
+    learning_starts : int
+        Minimum environment steps before the first gradient update.
+    buffer_size : int
+        Replay buffer capacity.  Key assignment hyperparameter.
+    target_update_freq : int
+        Gradient steps between target-network syncs. Key assignment hyperparameter.
+    n_episodes : int
+        Number of training episodes (50,000 for the full run).
+    verbose : bool
+        If True, print a progress line every log_every episodes.
 
     Returns
     -------
     dict
-        'agent'       : DQNAgent    — trained agent ready for evaluation
-        'returns'     : list[float] — per-episode total returns
-        'lengths'     : list[int]   — per-episode step counts
-        'survivals'   : list[bool]  — survival outcome per episode
-        'losses'      : list[float] — mean Huber loss per episode
-        'epsilons'    : list[float] — epsilon value used each episode
-        'noisy_eps'   : list[bool]  — EpisodicNoisyObsEnv active flags
-        'missing_eps' : list[bool]  — EpisodicMissingObsEnv active flags
-        'acute_eps'   : list[bool]  — AcuteEventEnv fired flags
+        'agent', 'returns', 'survivals', 'lengths', 'losses', 'epsilons',
+        'noisy_eps', 'missing_eps', 'acute_eps'
     """
     torch.manual_seed(seed)
     np.random.seed(seed)
     random.seed(seed)
 
-    env = make_clinical_env()
+    env       = make_clinical_env()
+    algo_name = 'Double DQN' if double else 'DQN'
 
     agent = DQNAgent(
         lr=lr, gamma=gamma,
-        epsilon_start=epsilon_start,
-        epsilon_min=epsilon_min,
-        epsilon_decay=epsilon_decay,
-        buffer_capacity=buffer_capacity,
-        batch_size=batch_size,
-        target_update=target_update,
-        hidden1=hidden1,
-        hidden2=hidden2,
-        device=device,
+        epsilon_start=epsilon_start, epsilon_min=epsilon_min,
+        buffer_size=buffer_size, batch_size=batch_size,
+        target_update_freq=target_update_freq,
+        hidden1=hidden1, hidden2=hidden2,
+        double=double, device=device,
     )
+
+    # Linear epsilon schedule: decay over the first exploration_fraction of episodes.
+    decay_episodes = max(1, int(exploration_fraction * n_episodes))
 
     returns, lengths, survivals = [], [], []
     losses, epsilons            = [], []
     noisy_eps, missing_eps, acute_eps = [], [], []
+    total_steps = 0
 
     for ep in range(n_episodes):
-        obs, info = env.reset(seed=int(np.random.randint(100_000)))
+        # Linear epsilon decay (clipped at epsilon_min)
+        agent.epsilon = max(
+            epsilon_min,
+            epsilon_start - (epsilon_start - epsilon_min) * ep / decay_episodes,
+        )
+
+        obs, info  = env.reset(seed=int(np.random.randint(100_000)))
         done       = False
         total_r    = 0.0
         steps      = 0
@@ -537,42 +627,37 @@ def train_dqn(
             action = agent.select_action(obs)
             next_obs, r, te, tr, info = env.step(action)
             done = te or tr
-
-            # 'done' is stored as float so the bootstrap target is zeroed out at
-            # terminal transitions — there is no future value after episode end
             agent.replay_buffer.push(obs, action, r, next_obs, float(done))
+            total_steps += 1
 
-            loss = agent.update()
-            if loss > 0.0:
-                ep_losses.append(loss)
+            if total_steps >= learning_starts:
+                for _ in range(gradient_steps):
+                    loss = agent.update()
+                    if loss > 0.0:
+                        ep_losses.append(loss)
 
             obs      = next_obs
             total_r += r
             steps   += 1
-
             if info.get('acute_event', False):
                 ep_acute = True
-
-        agent.decay_epsilon()
 
         returns.append(total_r)
         lengths.append(steps)
         survivals.append(total_r > 0)
-        losses.append(np.mean(ep_losses) if ep_losses else 0.0)
+        losses.append(float(np.mean(ep_losses)) if ep_losses else 0.0)
         epsilons.append(agent.epsilon)
         noisy_eps.append(ep_noisy)
         missing_eps.append(ep_missing)
         acute_eps.append(ep_acute)
 
-        # Print progress every 500 episodes if verbose = True:
-        if verbose and (ep + 1) % 500 == 0:
-            recent_ret  = np.mean(returns[-100:])
-            recent_surv = np.mean(survivals[-100:])
+        if verbose and (ep + 1) % log_every == 0:
+            recent_ret  = np.mean(returns[-log_every:])
+            recent_surv = np.mean(survivals[-log_every:])
             print(
-                f"Ep {ep+1:4d}/{n_episodes} | "
-                f"Return {recent_ret:.3f} | "
-                f"Survival {recent_surv:.2%} | "
-                f"ε={agent.epsilon:.3f}"
+                f"[{algo_name}] Ep {ep+1:6d}/{n_episodes} | "
+                f"Return {recent_ret:.3f} | Survival {recent_surv:.2%} | "
+                f"ε={agent.epsilon:.4f} | buffer={len(agent.replay_buffer):6d}"
             )
 
     env.close()
@@ -590,77 +675,420 @@ def train_dqn(
     }
 
 
-# ─── Hyperparameter Utilities ─────────────────────────────────────────────────
-
-def sample_params_b(param_grid):
+def train_ppo(
+    n_episodes=50_000,
+    lr=3e-4,
+    gamma=GAMMA,
+    gae_lambda=0.95,
+    clip_eps=0.2,
+    entropy_coef=0.01,
+    value_coef=0.5,
+    rollout_length=1024,
+    update_epochs=10,
+    minibatch_size=128,
+    hidden1=128,
+    hidden2=128,
+    seed=SEED,
+    device='cpu',
+    verbose=False,
+    log_every=1000,
+):
     """
-    Randomly sample one DQN configuration from a hyperparameter grid.
+    Train a PPO agent on the clinical ICU-Sepsis environment.
 
-    Parameters
-    ----------
-    param_grid : dict
-        Each key maps to a list of candidate values.
-        Typical keys: 'lr', 'epsilon_decay', 'epsilon_min',
-                      'batch_size', 'hidden1', 'hidden2'
+    PPO is on-policy: no replay buffer and no target network. It collects
+    rollout_length fresh steps, computes GAE advantages, and then runs
+    update_epochs passes of minibatch updates before discarding the data.
 
     Returns
     -------
     dict
-        One randomly selected value per key.
+        'agent', 'returns', 'survivals', 'lengths', 'losses', 'epsilons' (NaN),
+        'noisy_eps', 'missing_eps', 'acute_eps', 'ppo_updates'
+    """
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+
+    env   = make_clinical_env()
+    agent = PPOAgent(
+        lr=lr, gamma=gamma, gae_lambda=gae_lambda,
+        clip_eps=clip_eps, entropy_coef=entropy_coef, value_coef=value_coef,
+        rollout_length=rollout_length, update_epochs=update_epochs,
+        minibatch_size=minibatch_size,
+        hidden1=hidden1, hidden2=hidden2, device=device,
+    )
+
+    returns, lengths, survivals = [], [], []
+    losses, noisy_eps, missing_eps, acute_eps = [], [], [], []
+    ppo_updates = {'policy_loss': [], 'value_loss': [], 'entropy': [], 'clip_fraction': []}
+
+    obs, info  = env.reset(seed=int(np.random.randint(100_000)))
+    ep_return  = 0.0
+    ep_steps   = 0
+    ep_noisy   = info.get('noisy_episode', False)
+    ep_missing = info.get('missing_features') is not None
+    ep_acute   = False
+    last_update = {'policy_loss': 0.0, 'entropy': 0.0}
+
+    while len(returns) < n_episodes:
+        # ── collect one on-policy rollout ────────────────────────────────────
+        b_obs, b_act, b_lp, b_rew, b_val, b_done = [], [], [], [], [], []
+
+        for _ in range(rollout_length):
+            action, log_prob, value = agent.act(obs)
+            next_obs, r, te, tr, info = env.step(action)
+            done = te or tr
+
+            b_obs.append(obs.copy())
+            b_act.append(action)
+            b_lp.append(log_prob)
+            b_rew.append(r)
+            b_val.append(value)
+            b_done.append(float(done))
+
+            ep_return += r
+            ep_steps  += 1
+            if info.get('acute_event', False):
+                ep_acute = True
+            obs = next_obs
+
+            if done:
+                returns.append(ep_return)
+                lengths.append(ep_steps)
+                survivals.append(ep_return > 0)
+                losses.append(last_update['policy_loss'])
+                noisy_eps.append(ep_noisy)
+                missing_eps.append(ep_missing)
+                acute_eps.append(ep_acute)
+
+                if verbose and len(returns) % log_every == 0:
+                    recent_ret  = np.mean(returns[-log_every:])
+                    recent_surv = np.mean(survivals[-log_every:])
+                    print(
+                        f"[PPO] Ep {len(returns):6d}/{n_episodes} | "
+                        f"Return {recent_ret:.3f} | Survival {recent_surv:.2%} | "
+                        f"p_loss={last_update['policy_loss']:.4f} "
+                        f"entropy={last_update['entropy']:.3f}"
+                    )
+
+                if len(returns) >= n_episodes:
+                    break
+
+                obs, info  = env.reset(seed=int(np.random.randint(100_000)))
+                ep_return  = 0.0
+                ep_steps   = 0
+                ep_noisy   = info.get('noisy_episode', False)
+                ep_missing = info.get('missing_features') is not None
+                ep_acute   = False
+
+        # ── GAE advantage computation ─────────────────────────────────────────
+        last_value = 0.0 if b_done[-1] == 1.0 else agent.value(obs)
+        adv = np.zeros(len(b_rew), dtype=np.float32)
+        gae = 0.0
+        for t in reversed(range(len(b_rew))):
+            next_val    = last_value if t == len(b_rew) - 1 else b_val[t + 1]
+            nonterminal = 1.0 - b_done[t]
+            delta       = b_rew[t] + gamma * next_val * nonterminal - b_val[t]
+            gae         = delta + gamma * gae_lambda * nonterminal * gae
+            adv[t]      = gae
+        b_returns = adv + np.array(b_val, dtype=np.float32)
+
+        # ── PPO gradient update ───────────────────────────────────────────────
+        metrics = agent.update(
+            np.array(b_obs, dtype=np.float32),
+            np.array(b_act, dtype=np.int64),
+            np.array(b_lp,  dtype=np.float32),
+            b_returns, adv,
+        )
+        last_update = metrics
+        for k in ppo_updates:
+            ppo_updates[k].append(metrics[k])
+
+    env.close()
+
+    return {
+        'agent':       agent,
+        'returns':     returns[:n_episodes],
+        'lengths':     lengths[:n_episodes],
+        'survivals':   survivals[:n_episodes],
+        'losses':      losses[:n_episodes],
+        'epsilons':    [float('nan')] * min(len(returns), n_episodes),
+        'noisy_eps':   noisy_eps[:n_episodes],
+        'missing_eps': missing_eps[:n_episodes],
+        'acute_eps':   acute_eps[:n_episodes],
+        'ppo_updates': ppo_updates,
+    }
+
+
+# ─── Hyperparameter Tuning (Optuna) ───────────────────────────────────────────
+
+def _suggest_dqn_params(trial, double=False):
+    """Suggest DQN / Double DQN hyperparameters for an Optuna trial.
+
+    The assignment asks to study buffer_size and target_update_freq explicitly,
+    so both are in the search space. Architecture is always symmetric:
+    64-64, 128-128 or 256-256.
+    """
+    arch = trial.suggest_categorical('net_arch', [64, 128, 256])
+    return {
+        'lr':                   trial.suggest_float('lr', 1e-4, 5e-3, log=True),
+        'exploration_fraction': trial.suggest_categorical('exploration_fraction',
+                                                           [0.05, 0.10, 0.20]),
+        'epsilon_min':          trial.suggest_categorical('epsilon_min',
+                                                           [0.01, 0.05, 0.10]),
+        'batch_size':           trial.suggest_categorical('batch_size',
+                                                           [32, 64, 128]),
+        'buffer_size':          trial.suggest_categorical('buffer_size',
+                                                           [10_000, 50_000, 100_000]),
+        'target_update_freq':   trial.suggest_categorical('target_update_freq',
+                                                           [50, 100, 250, 500]),
+        'gradient_steps':       trial.suggest_categorical('gradient_steps',
+                                                           [1, 2, 4]),
+        'hidden1': arch,
+        'hidden2': arch,
+    }
+
+
+def _suggest_ppo_params(trial):
+    """Suggest PPO hyperparameters for an Optuna trial."""
+    return {
+        'lr':             trial.suggest_float('lr', 1e-4, 3e-3, log=True),
+        'gae_lambda':     trial.suggest_categorical('gae_lambda',
+                                                     [0.90, 0.95, 1.0]),
+        'clip_eps':       trial.suggest_categorical('clip_eps',
+                                                     [0.1, 0.2, 0.3]),
+        'entropy_coef':   trial.suggest_categorical('entropy_coef',
+                                                     [0.0, 0.01, 0.05]),
+        'value_coef':     trial.suggest_categorical('value_coef', [0.5, 1.0]),
+        'rollout_length': trial.suggest_categorical('rollout_length',
+                                                     [512, 1024, 2048]),
+        'update_epochs':  trial.suggest_categorical('update_epochs', [4, 10]),
+        'minibatch_size': trial.suggest_categorical('minibatch_size',
+                                                     [64, 128, 256]),
+        'hidden1':        trial.suggest_categorical('hidden1', [64, 128, 256]),
+        'hidden2':        trial.suggest_categorical('hidden2', [64, 128, 256]),
+    }
+
+
+def run_optuna(
+    algo,
+    n_trials=10,
+    n_episodes_tune=500,
+    eval_episodes=200,
+    seed=SEED,
+    device='cpu',
+    verbose=False,
+):
+    """
+    Tune DQN, Double DQN or PPO hyperparameters with Optuna (TPE sampler).
+
+    Each trial trains the agent for n_episodes_tune (much smaller than 50K),
+    evaluates it, and returns the mean return as the objective. The best
+    hyperparameters are then used for the full 50K-episode run.
+
+    Parameters
+    ----------
+    algo : str
+        'dqn', 'ddqn' / 'double_dqn', or 'ppo'.
+    n_trials : int
+        Number of Optuna trials.
+    n_episodes_tune : int
+        Training episodes per trial.
+    eval_episodes : int
+        Episodes used to score each trial.
+    verbose : bool
+        Show a progress bar during the search.
+
+    Returns
+    -------
+    (dict, optuna.Study)
+        (best_params, study)  — best_params plugs directly into train_dqn /
+        train_ppo for the final run.
+    """
+    if not _HAS_OPTUNA:
+        raise ImportError("optuna is not installed. `pip install optuna`.")
+
+    a = algo.lower().replace(' ', '_').replace('-', '_')
+    is_dqn = a in ('dqn', 'ddqn', 'double_dqn', 'double')
+    is_double = a in ('ddqn', 'double_dqn', 'double')
+
+    def objective(trial):
+        if is_dqn:
+            params = _suggest_dqn_params(trial, double=is_double)
+            hist = train_dqn(
+                n_episodes=n_episodes_tune, double=is_double,
+                seed=seed, device=device, **params,
+            )
+        elif a == 'ppo':
+            params = _suggest_ppo_params(trial)
+            hist = train_ppo(
+                n_episodes=n_episodes_tune, seed=seed, device=device, **params,
+            )
+        else:
+            raise ValueError(f"Unknown algo {algo!r}. Choose 'dqn', 'ddqn' or 'ppo'.")
+
+        m = evaluate_policy_b(hist['agent'], n_episodes=eval_episodes, seed=seed)
+        return m.summary()['mean_return']
+
+    study = optuna.create_study(
+        direction='maximize',
+        sampler=optuna.samplers.TPESampler(seed=seed),
+    )
+    study.optimize(
+        objective,
+        n_trials=n_trials,
+        show_progress_bar=verbose,
+    )
+
+    # Optuna returns parameter names as registered with suggest_*.
+    # Convert 'net_arch' (used internally) to 'hidden1'/'hidden2' so the
+    # returned dict plugs directly into train_dqn / train_ppo.
+    best = dict(study.best_params)
+    if 'net_arch' in best:
+        arch = best.pop('net_arch')
+        best['hidden1'] = arch
+        best['hidden2'] = arch
+
+    return best, study
+
+
+# ─── Legacy random search ─────────────────────────────────────────────────────
+
+def sample_params_b(param_grid):
+    """Randomly sample one DQN configuration from a hyperparameter grid.
+
+    Kept for backward compatibility. For new experiments, prefer run_optuna.
     """
     return {k: random.choice(v) for k, v in param_grid.items()}
 
 
-# ─── Plotting Utilities ───────────────────────────────────────────────────────
+# ─── Plotting utilities ───────────────────────────────────────────────────────
 
 def moving_average(x, window=100):
     """
-    Compute a simple moving average of a 1-D sequence.
+    Causal moving average that preserves the input length.
 
-    Uses 'valid' convolution, so the output has length max(0, len(x) - window + 1).
+    The first (window−1) values use a shorter prefix window so the output
+    is always the same length as the input. This allows all learning curves
+    to be plotted on the same episode x-axis without alignment offsets.
 
     Parameters
     ----------
-    x      : list[float] or np.ndarray — input sequence to smooth
-    window : int, default=100          — averaging window size
+    x      : list[float] or np.ndarray
+    window : int  – averaging window size
 
     Returns
     -------
-    np.ndarray
-        Smoothed sequence of length len(x) - window + 1.
+    np.ndarray  same length as x
     """
-    return np.convolve(np.array(x, dtype=float), np.ones(window) / window, mode='valid')
+    v = np.asarray(x, dtype=float)
+    if v.size == 0:
+        return v
+    w = int(min(window, v.size))
+    cumsum = np.cumsum(np.insert(v, 0, 0.0))
+    full   = (cumsum[w:] - cumsum[:-w]) / w
+    head   = np.array([v[:i + 1].mean() for i in range(w - 1)])
+    return np.concatenate([head, full])
 
+
+def plot_return_curves(
+    histories,
+    window=500,
+    title='Learning Curves — Episode Return',
+    baselines=None,
+    max_episodes=None,
+    figsize=(11, 5),
+    savepath=None,
+):
+    """
+    One figure comparing smoothed return learning curves for all algorithms.
+
+    Parameters
+    ----------
+    histories : dict[str, dict]
+        Maps label → training history dict from train_dqn / train_ppo.
+    window : int
+        Moving-average smoothing window.
+    baselines : dict[str, float] or None
+        Optional horizontal reference lines {label: value}, e.g. random baseline.
+    max_episodes : int or None
+        Fix x-axis upper bound for a consistent comparison.
+    savepath : str or None
+        If given, save the figure to this path.
+    """
+    plt.figure(figsize=figsize)
+    for label, h in histories.items():
+        y = moving_average(h['returns'], window)
+        plt.plot(np.arange(len(y)), y, label=label, linewidth=2)
+    if baselines:
+        for blabel, bval in baselines.items():
+            plt.axhline(bval, linestyle='--', linewidth=1.2, label=blabel, color='gray')
+    plt.xlabel('Training episode')
+    plt.ylabel(f'Return (MA-{window})')
+    plt.title(title)
+    if max_episodes is not None:
+        plt.xlim(0, max_episodes)
+    plt.legend()
+    plt.grid(alpha=0.25)
+    plt.tight_layout()
+    if savepath:
+        plt.savefig(savepath, dpi=120, bbox_inches='tight')
+    plt.show()
+
+
+def plot_survival_curves(
+    histories,
+    window=500,
+    title='Learning Curves — Survival Rate',
+    baselines=None,
+    max_episodes=None,
+    figsize=(11, 5),
+    savepath=None,
+):
+    """
+    One figure comparing smoothed survival-rate learning curves for all algorithms.
+
+    Parameters identical to plot_return_curves but the y-axis shows the
+    fraction of episodes in which the patient survived (return > 0).
+    """
+    plt.figure(figsize=figsize)
+    for label, h in histories.items():
+        y = moving_average([float(s) for s in h['survivals']], window)
+        plt.plot(np.arange(len(y)), y, label=label, linewidth=2)
+    if baselines:
+        for blabel, bval in baselines.items():
+            plt.axhline(bval, linestyle='--', linewidth=1.2, label=blabel, color='gray')
+    plt.xlabel('Training episode')
+    plt.ylabel(f'Survival rate (MA-{window})')
+    plt.ylim(0, 1)
+    plt.title(title)
+    if max_episodes is not None:
+        plt.xlim(0, max_episodes)
+    plt.legend()
+    plt.grid(alpha=0.25)
+    plt.tight_layout()
+    if savepath:
+        plt.savefig(savepath, dpi=120, bbox_inches='tight')
+    plt.show()
+
+
+# ─── Convergence utilities ────────────────────────────────────────────────────
 
 def dqn_convergence_episode(returns, window=100, patience=5, threshold=0.02):
     """
-    Estimate the episode at which DQN training converged.
+    Estimate the episode at which training converged.
 
-    Convergence is declared when the moving-average return changes by less
-    than `threshold` for `patience` consecutive steps.
-
-    Parameters
-    ----------
-    returns   : list[float] or np.ndarray
-        Per-episode returns collected during training.
-
-    window    : int, default=100
-        Moving average window size.
-
-    patience  : int, default=5
-        Consecutive stable windows required to declare convergence.
-
-    threshold : float, default=0.02
-        Minimum change between consecutive moving-average values that
-        counts as meaningful improvement.
+    Convergence is declared when the 'valid'-mode moving average changes by
+    less than threshold for patience consecutive steps.
 
     Returns
     -------
-    int
-        Estimated convergence episode index.
-        Returns len(returns) if convergence is never detected.
+    int  – estimated convergence episode; len(returns) if never detected.
     """
-    ma = moving_average(returns, window)
+    ma = np.convolve(
+        np.array(returns, dtype=float), np.ones(window) / window, mode='valid'
+    )
     stagnant = 0
     for i in range(1, len(ma)):
         if abs(ma[i] - ma[i - 1]) < threshold:
@@ -668,5 +1096,5 @@ def dqn_convergence_episode(returns, window=100, patience=5, threshold=0.02):
         else:
             stagnant = 0
         if stagnant >= patience:
-            return i
+            return i + window - 1
     return len(returns)

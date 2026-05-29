@@ -8,7 +8,7 @@ Contents
 --------
   EvalMetricsB              – episode statistics tracker
   evaluate_policy_b         – greedy evaluation on make_clinical_env()
-  QNetwork                  – feedforward Q-network (47 → hidden → 25)
+  QNetwork                  – feedforward Q-network (47 -> hidden -> 25)
   ActorCritic               – shared-trunk actor-critic network for PPO
   ReplayBuffer              – uniform circular experience replay buffer
   DQNAgent                  – DQN / Double-DQN agent (double=True for Double DQN)
@@ -51,7 +51,7 @@ except ImportError:
     optuna = None
     _HAS_OPTUNA = False
 
-# ─── Shared constants ─────────────────────────────────────────────────────────
+# --- Shared constants ---
 
 SEED      = 42
 N_OBS     = 47    # dimensionality of the continuous observation vector
@@ -59,7 +59,7 @@ N_ACTIONS = 25    # 5 vasopressor levels × 5 IV-fluid dose levels
 GAMMA     = 1.0   # no time discounting, following the ICU-Sepsis paper convention
 
 
-# ─── Evaluation helpers ───────────────────────────────────────────────────────
+# --- Evaluation helpers ---
 
 class EvalMetricsB:
     """
@@ -140,11 +140,11 @@ def evaluate_policy_b(agent, n_episodes=1000, seed=SEED, **env_kwargs):
     return metrics
 
 
-# ─── Neural Networks ──────────────────────────────────────────────────────────
+# --- Neural Networks ---
 
 class QNetwork(nn.Module):
     """
-    Feedforward Q-network: obs (47) → hidden → ReLU → ... → Q-values (25).
+    Feedforward Q-network: obs (47) -> hidden -> ReLU -> ... -> Q-values (25).
 
     Parameters
     ----------
@@ -175,8 +175,8 @@ class ActorCritic(nn.Module):
     Shared-trunk actor-critic for PPO.
 
     A common feature trunk feeds two separate heads:
-      * policy head → action logits (25) for Categorical distribution
-      * value  head → scalar state value estimate
+      * policy head -> action logits (25) for Categorical distribution
+      * value  head -> scalar state value estimate
 
     Tanh activations are preferred for the PPO trunk as they bound the
     feature magnitudes and produce smoother advantage estimates.
@@ -207,7 +207,7 @@ class ActorCritic(nn.Module):
         return self.policy_head(z), self.value_head(z).squeeze(-1)
 
 
-# ─── Experience Replay ────────────────────────────────────────────────────────
+# --- Experience Replay ---
 
 class ReplayBuffer:
     """
@@ -245,7 +245,7 @@ class ReplayBuffer:
         return len(self.buffer)
 
 
-# ─── DQN / Double DQN Agent ───────────────────────────────────────────────────
+# --- DQN / Double DQN Agent ---
 
 class DQNAgent:
     """
@@ -261,7 +261,7 @@ class DQNAgent:
     buffer_size        : replay buffer capacity — a too-small buffer causes
                          catastrophic forgetting; a too-large one slows learning
                          because old transitions stay in the buffer too long.
-    target_update_freq : gradient steps between online→target syncs — too
+    target_update_freq : gradient steps between online->target syncs — too
                          frequent syncs reintroduce moving-target instability;
                          too infrequent syncs slow learning.
 
@@ -380,7 +380,7 @@ class DQNAgent:
         self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
 
 
-# ─── PPO Agent ────────────────────────────────────────────────────────────────
+# --- PPO Agent ---
 
 class PPOAgent:
     """
@@ -396,8 +396,8 @@ class PPOAgent:
     rollout_length  : steps collected per policy update
     update_epochs   : passes over each rollout
     clip_eps        : PPO clipping parameter (keeps the update conservative)
-    gae_lambda      : GAE smoothing (λ=1 → full Monte-Carlo returns,
-                      λ=0 → pure TD, λ≈0.95 is a common sweet spot)
+    gae_lambda      : GAE smoothing (λ=1 -> full Monte-Carlo returns,
+                      λ=0 -> pure TD, λ≈0.95 is a common sweet spot)
     entropy_coef    : entropy bonus (encourages exploration)
     """
 
@@ -528,7 +528,7 @@ class PPOAgent:
         }
 
 
-# ─── Training Loops ───────────────────────────────────────────────────────────
+# --- Training Loops ---
 
 def train_dqn(
     n_episodes=50_000,
@@ -556,7 +556,7 @@ def train_dqn(
     Parameters
     ----------
     double : bool
-        False → vanilla DQN; True → Double DQN (default False).
+        False -> vanilla DQN; True -> Double DQN (default False).
     exploration_fraction : float
         Fraction of n_episodes over which epsilon decays linearly from
         epsilon_start to epsilon_min. Kept small (0.05) because this
@@ -732,7 +732,7 @@ def train_ppo(
     last_update = {'policy_loss': 0.0, 'entropy': 0.0}
 
     while len(returns) < n_episodes:
-        # ── collect one on-policy rollout ────────────────────────────────────
+        # --- collect one on-policy rollout ---
         b_obs, b_act, b_lp, b_rew, b_val, b_done = [], [], [], [], [], []
 
         for _ in range(rollout_length):
@@ -782,7 +782,7 @@ def train_ppo(
                 ep_missing = info.get('missing_features') is not None
                 ep_acute   = False
 
-        # ── GAE advantage computation ─────────────────────────────────────────
+        # --- GAE advantage computation ---
         last_value = 0.0 if b_done[-1] == 1.0 else agent.value(obs)
         adv = np.zeros(len(b_rew), dtype=np.float32)
         gae = 0.0
@@ -794,7 +794,7 @@ def train_ppo(
             adv[t]      = gae
         b_returns = adv + np.array(b_val, dtype=np.float32)
 
-        # ── PPO gradient update ───────────────────────────────────────────────
+        # --- PPO gradient update ---
         metrics = agent.update(
             np.array(b_obs, dtype=np.float32),
             np.array(b_act, dtype=np.int64),
@@ -821,7 +821,7 @@ def train_ppo(
     }
 
 
-# ─── Hyperparameter Tuning (Optuna) ───────────────────────────────────────────
+# --- Hyperparameter Tuning (Optuna) ---
 
 def _suggest_dqn_params(trial, double=False):
     """Suggest DQN / Double DQN hyperparameters for an Optuna trial.
@@ -876,6 +876,7 @@ def run_optuna(
     n_trials=10,
     n_episodes_tune=500,
     eval_episodes=200,
+    metric='combined',
     seed=SEED,
     device='cpu',
     verbose=False,
@@ -929,7 +930,13 @@ def run_optuna(
             raise ValueError(f"Unknown algo {algo!r}. Choose 'dqn', 'ddqn' or 'ppo'.")
 
         m = evaluate_policy_b(hist['agent'], n_episodes=eval_episodes, seed=seed)
-        return m.summary()['mean_return']
+        s = m.summary()
+        if metric == 'survival':
+            return s['survival_rate']
+        elif metric == 'combined':
+            return s['survival_rate'] + s['mean_return']
+        else:
+            return s['mean_return']
 
     study = optuna.create_study(
         direction='maximize',
@@ -953,7 +960,7 @@ def run_optuna(
     return best, study
 
 
-# ─── Legacy random search ─────────────────────────────────────────────────────
+# --- Legacy random search ---
 
 def sample_params_b(param_grid):
     """Randomly sample one DQN configuration from a hyperparameter grid.
@@ -963,7 +970,7 @@ def sample_params_b(param_grid):
     return {k: random.choice(v) for k, v in param_grid.items()}
 
 
-# ─── Plotting utilities ───────────────────────────────────────────────────────
+# --- Plotting utilities ---
 
 def moving_average(x, window=100):
     """
@@ -1007,7 +1014,7 @@ def plot_return_curves(
     Parameters
     ----------
     histories : dict[str, dict]
-        Maps label → training history dict from train_dqn / train_ppo.
+        Maps label -> training history dict from train_dqn / train_ppo.
     window : int
         Moving-average smoothing window.
     baselines : dict[str, float] or None
@@ -1073,7 +1080,7 @@ def plot_survival_curves(
     plt.show()
 
 
-# ─── Convergence utilities ────────────────────────────────────────────────────
+# --- Convergence utilities ---
 
 def dqn_convergence_episode(returns, window=100, patience=5, threshold=0.02):
     """

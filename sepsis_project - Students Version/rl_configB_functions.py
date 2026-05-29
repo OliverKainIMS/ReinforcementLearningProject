@@ -375,10 +375,6 @@ class DQNAgent:
 
         return float(loss.item())
 
-    def decay_epsilon(self):
-        """Apply one multiplicative epsilon decay step (called once per episode)."""
-        self.epsilon = max(self.epsilon_min, self.epsilon * self.epsilon_decay)
-
 
 # --- PPO Agent ---
 
@@ -885,8 +881,16 @@ def run_optuna(
     Tune DQN, Double DQN or PPO hyperparameters with Optuna (TPE sampler).
 
     Each trial trains the agent for n_episodes_tune (much smaller than 50K),
-    evaluates it, and returns the mean return as the objective. The best
-    hyperparameters are then used for the full 50K-episode run.
+    evaluates it, and returns the selected evaluation metric as the objective.
+    For metric='combined', Optuna uses NSGA-II multi-objective optimisation
+    over both survival rate and mean return, instead of collapsing them into
+    a manually weighted scalar.
+
+    For metric='combined', there is no single scalar best_value. Optuna returns
+    a Pareto frontier through study.best_trials. We select one final trial from
+    that frontier by prioritising survival_rate first and mean_return second,
+    matching the clinical objective of maximising survival while retaining the
+    return signal that includes treatment parsimony.
 
     Parameters
     ----------
@@ -898,13 +902,17 @@ def run_optuna(
         Training episodes per trial.
     eval_episodes : int
         Episodes used to score each trial.
+    metric : str
+        'return' -> maximise mean return.
+        'survival' -> maximise survival rate.
+        'combined' -> maximise survival rate and mean return jointly.
     verbose : bool
         Show a progress bar during the search.
 
     Returns
     -------
     (dict, optuna.Study)
-        (best_params, study)  — best_params plugs directly into train_dqn /
+        (best_params, study) - best_params plugs directly into train_dqn /
         train_ppo for the final run.
     """
     if not _HAS_OPTUNA:
@@ -931,27 +939,46 @@ def run_optuna(
 
         m = evaluate_policy_b(hist['agent'], n_episodes=eval_episodes, seed=seed)
         s = m.summary()
+
         if metric == 'survival':
             return s['survival_rate']
         elif metric == 'combined':
-            return s['survival_rate'] + s['mean_return']
+            return s['survival_rate'], s['mean_return']
         else:
             return s['mean_return']
 
-    study = optuna.create_study(
-        direction='maximize',
-        sampler=optuna.samplers.TPESampler(seed=seed),
-    )
+    if metric == 'combined':
+        study = optuna.create_study(
+            directions=['maximize', 'maximize'],
+            sampler=optuna.samplers.NSGAIISampler(seed=seed),
+        )
+    else:
+        study = optuna.create_study(
+            direction='maximize',
+            sampler=optuna.samplers.TPESampler(seed=seed),
+        )
+
     study.optimize(
         objective,
         n_trials=n_trials,
         show_progress_bar=verbose,
     )
 
+    if metric == 'combined':
+        # Multi-objective Optuna returns a Pareto frontier, not one best trial.
+        # We choose the clinically strongest candidate: highest survival first,
+        # then highest mean return among ties / near-equivalent candidates.
+        best_trial = max(
+            study.best_trials,
+            key=lambda t: (t.values[0], t.values[1])
+        )
+    else:
+        best_trial = study.best_trial
+
     # Optuna returns parameter names as registered with suggest_*.
     # Convert 'net_arch' (used internally) to 'hidden1'/'hidden2' so the
     # returned dict plugs directly into train_dqn / train_ppo.
-    best = dict(study.best_params)
+    best = dict(best_trial.params)
     if 'net_arch' in best:
         arch = best.pop('net_arch')
         best['hidden1'] = arch

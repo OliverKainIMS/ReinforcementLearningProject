@@ -527,14 +527,14 @@ class PPOAgent:
 # --- Training Loops ---
 
 def train_dqn(
-    n_episodes=50_000,
+    n_episodes=50000,
     double=False,
     lr=1e-3,
     gamma=GAMMA,
     epsilon_start=1.0,
     epsilon_min=0.05,
     exploration_fraction=0.05,
-    buffer_size=50_000,
+    buffer_size=50000,
     batch_size=64,
     target_update_freq=100,
     gradient_steps=1,

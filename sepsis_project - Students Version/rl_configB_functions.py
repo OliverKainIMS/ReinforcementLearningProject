@@ -16,7 +16,6 @@ Contents
   train_dqn                 – DQN / Double-DQN training loop
   train_ppo                 – PPO training loop
   run_optuna                – Optuna hyperparameter search for all three algorithms
-  sample_params_b           – legacy random hyperparameter sampler
   moving_average            – causal moving average (preserves sequence length)
   dqn_convergence_episode   – estimate convergence episode from returns
   plot_return_curves        – comparison learning-curve plot (return)
@@ -985,17 +984,6 @@ def run_optuna(
         best['hidden2'] = arch
 
     return best, study
-
-
-# --- Legacy random search ---
-
-def sample_params_b(param_grid):
-    """Randomly sample one DQN configuration from a hyperparameter grid.
-
-    Kept for backward compatibility. For new experiments, prefer run_optuna.
-    """
-    return {k: random.choice(v) for k, v in param_grid.items()}
-
 
 # --- Plotting utilities ---
 

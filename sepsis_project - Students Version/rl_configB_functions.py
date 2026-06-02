@@ -895,7 +895,7 @@ def run_optuna(
     Parameters
     ----------
     algo : str
-        'dqn', 'ddqn' / 'double_dqn', or 'ppo'.
+        'ddqn' / 'double_dqn', or 'ppo'.
     n_trials : int
         Number of Optuna trials.
     n_episodes_tune : int

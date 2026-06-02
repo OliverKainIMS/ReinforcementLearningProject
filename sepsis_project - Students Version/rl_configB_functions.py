@@ -878,7 +878,7 @@ def run_optuna(
     verbose=False,
 ):
     """
-    Tune DQN, Double DQN or PPO hyperparameters with Optuna (TPE sampler).
+    Tune Double DQN or PPO hyperparameters with Optuna .
 
     Each trial trains the agent for n_episodes_tune (much smaller than 50K),
     evaluates it, and returns the selected evaluation metric as the objective.

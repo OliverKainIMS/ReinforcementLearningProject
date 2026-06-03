@@ -1,10 +1,10 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.29 (TeX Live 2026) (preloaded format=pdflatex 2026.4.12)  2 JUN 2026 15:43
+This is pdfTeX, Version 3.141592653-2.6-1.40.29 (TeX Live 2026) (preloaded format=pdflatex 2026.4.12)  3 JUN 2026 19:47
 entering extended mode
  restricted \write18 enabled.
  file:line:error style messages enabled.
  %&-line parsing enabled.
-**"/Users/andreearoica/Documents/NOVA IMS/Reinforcement Learning/Project/sepsis_project - Students Version/main.tex"
-(/Users/andreearoica/Documents/NOVA IMS/Reinforcement Learning/Project/sepsis_project - Students Version/main.tex
+**"/Users/andreearoica/Documents/NOVA IMS/Reinforcement Learning/Project/sepsis_project - Students Version/Report/main.tex"
+(/Users/andreearoica/Documents/NOVA IMS/Reinforcement Learning/Project/sepsis_project - Students Version/Report/main.tex
 LaTeX2e <2025-11-01>
 L3 programming layer <2026-01-19>
 (/usr/local/texlive/2026basic/texmf-dist/tex/latex/base/article.cls
@@ -417,31 +417,83 @@ Package hyperref Info: Link coloring OFF on input line 16.
 pdfTeX warning (ext4): destination with the same identifier (name{page.1}) has been already used, duplicate ignored
 <to be read again> 
                    \relax 
-l.31 ...}{\numberline {8}Conclusion}{8}{section.8}
+l.31 ...n}{\numberline {A}Figures}{11}{appendix.A}
                                                   % [1])
 \tf@toc=\write4
 \openout4 = `main.toc'.
 
  [2] [3
 
-] [4] [5] [6] [7] [8]
-<best_actions_across_states.png, id=213, 620.208pt x 231.264pt>
+] [4] [5] [6] [7] [8] [9] [10]
+<best_actions_across_states.png, id=240, 620.208pt x 231.264pt>
 File: best_actions_across_states.png Graphic file (type png)
 <use best_actions_across_states.png>
-Package pdftex.def Info: best_actions_across_states.png  used on input line 257.
+Package pdftex.def Info: best_actions_across_states.png  used on input line 370.
 (pdftex.def)             Requested size: 455.24411pt x 169.75644pt.
-<policy_agreement_ensemble_analysis.png, id=215, 1198.2366pt x 1323.2637pt>
-File: policy_agreement_ensemble_analysis.png Graphic file (type png)
-<use policy_agreement_ensemble_analysis.png>
-Package pdftex.def Info: policy_agreement_ensemble_analysis.png  used on input line 264.
-(pdftex.def)             Requested size: 455.24411pt x 502.74448pt.
+<Graph_1.png, id=242, 455.7025pt x 161.60374pt>
+File: Graph_1.png Graphic file (type png)
+<use Graph_1.png>
+Package pdftex.def Info: Graph_1.png  used on input line 377.
+(pdftex.def)             Requested size: 455.24411pt x 161.44553pt.
+<Graph_2.png, id=243, 455.7025pt x 197.73875pt>
+File: Graph_2.png Graphic file (type png)
+<use Graph_2.png>
+Package pdftex.def Info: Graph_2.png  used on input line 384.
+(pdftex.def)             Requested size: 455.24411pt x 197.54515pt.
 
 
 LaTeX Warning: `h' float specifier changed to `ht'.
 
-[9
+<Graph_3.png, id=244, 455.7025pt x 161.60374pt>
+File: Graph_3.png Graphic file (type png)
+<use Graph_3.png>
+Package pdftex.def Info: Graph_3.png  used on input line 391.
+(pdftex.def)             Requested size: 455.24411pt x 161.44553pt.
 
- <./best_actions_across_states.png>] [10 <./policy_agreement_ensemble_analysis.png>]
+LaTeX Warning: `h' float specifier changed to `ht'.
+
+<Graph_4.png, id=245, 455.7025pt x 161.60374pt>
+File: Graph_4.png Graphic file (type png)
+<use Graph_4.png>
+Package pdftex.def Info: Graph_4.png  used on input line 398.
+(pdftex.def)             Requested size: 455.24411pt x 161.44553pt.
+
+LaTeX Warning: `h' float specifier changed to `ht'.
+
+<Graph_5.png, id=246, 455.7025pt x 197.73875pt>
+File: Graph_5.png Graphic file (type png)
+<use Graph_5.png>
+Package pdftex.def Info: Graph_5.png  used on input line 405.
+(pdftex.def)             Requested size: 455.24411pt x 197.54515pt.
+
+LaTeX Warning: `h' float specifier changed to `ht'.
+
+<Graph_6.png, id=247, 455.7025pt x 161.60374pt>
+File: Graph_6.png Graphic file (type png)
+<use Graph_6.png>
+Package pdftex.def Info: Graph_6.png  used on input line 412.
+(pdftex.def)             Requested size: 455.24411pt x 161.44553pt.
+
+LaTeX Warning: `h' float specifier changed to `ht'.
+
+<policy_agreement_ensemble_analysis.png, id=248, 1198.2366pt x 1323.2637pt>
+File: policy_agreement_ensemble_analysis.png Graphic file (type png)
+<use policy_agreement_ensemble_analysis.png>
+Package pdftex.def Info: policy_agreement_ensemble_analysis.png  used on input line 419.
+(pdftex.def)             Requested size: 455.24411pt x 502.74448pt.
+
+LaTeX Warning: `h' float specifier changed to `ht'.
+
+[11
+
+ <./best_actions_across_states.png> <./Graph_1.png>] [12 <./Graph_2.png> <./Graph_3.png> <./Graph_4.png>] [13 <./Graph_5.png> <./Graph_6.png>] [14 <./policy_agreement_ensemble_analysis.png>]
+Overfull \hbox (65.91982pt too wide) in paragraph at lines 433--441
+ [][] 
+ []
+
+[15
+
+]
 No file main.bbl.
 (./main.aux)
  ***********
@@ -449,21 +501,21 @@ LaTeX2e <2025-11-01>
 L3 programming layer <2026-01-19>
  ***********
 Package rerunfilecheck Info: File `main.out' has not changed.
-(rerunfilecheck)             Checksum: ADAA10471C05737E8C267B553E028802;5173.
+(rerunfilecheck)             Checksum: 1769F21664E4C9636EA9087D4DE11C3E;5469.
  ) 
 Here is how much of TeX's memory you used:
- 15334 strings out of 469006
- 307186 string characters out of 5454813
- 684253 words of memory out of 5000000
- 43858 multiletter control sequences out of 15000+600000
+ 15402 strings out of 469006
+ 308479 string characters out of 5454813
+ 685163 words of memory out of 5000000
+ 43914 multiletter control sequences out of 15000+600000
  633258 words of font info for 59 fonts, out of 8000000 for 9000
  319 hyphenation exceptions out of 8191
- 75i,6n,80p,490b,1072s stack positions out of 10000i,1000n,20000p,200000b,200000s
-</usr/local/texlive/2026basic/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx10.pfb></usr/local/texlive/2026basic/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx12.pfb></usr/local/texlive/2026basic/texmf-dist/fonts/type1/public/amsfonts/cm/cmr10.pfb></usr/local/texlive/2026basic/texmf-dist/fonts/type1/public/amsfonts/cm/cmr12.pfb>
-Output written on main.pdf (11 pages, 254959 bytes).
+ 75i,8n,80p,497b,1072s stack positions out of 10000i,1000n,20000p,200000b,200000s
+</usr/local/texlive/2026basic/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx10.pfb></usr/local/texlive/2026basic/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx12.pfb></usr/local/texlive/2026basic/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi10.pfb></usr/local/texlive/2026basic/texmf-dist/fonts/type1/public/amsfonts/cm/cmr10.pfb></usr/local/texlive/2026basic/texmf-dist/fonts/type1/public/amsfonts/cm/cmr12.pfb></usr/local/texlive/2026basic/texmf-dist/fonts/type1/public/amsfonts/cm/cmr8.pfb></usr/local/texlive/2026basic/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy8.pfb>
+Output written on main.pdf (16 pages, 609284 bytes).
 PDF statistics:
- 259 PDF objects out of 1000 (max. 8388607)
- 231 compressed objects within 3 object streams
- 46 named destinations out of 1000 (max. 500000)
- 267 words of extra memory for PDF output out of 10000 (max. 10000000)
+ 326 PDF objects out of 1000 (max. 8388607)
+ 275 compressed objects within 3 object streams
+ 58 named destinations out of 1000 (max. 500000)
+ 297 words of extra memory for PDF output out of 10000 (max. 10000000)
 

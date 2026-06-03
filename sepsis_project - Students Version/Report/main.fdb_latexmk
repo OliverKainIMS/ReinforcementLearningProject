@@ -1,5 +1,5 @@
 # Fdb version 4
-["bibtex main"] 0 "main.aux" "main.bbl" "main" 1780411438.36271 0
+["bibtex main"] 0 "main.aux" "main.bbl" "main" 1780512444.83735 0
   "/usr/local/texlive/2026basic/texmf-dist/bibtex/bst/base/plain.bst" 1292289607 20613 bd3fbfa9f64872b81ac57a0dd2ed855f ""
   "main.aux" 0 -1 0 "pdflatex"
   "references.bib" 0 -1 0 ""
@@ -7,8 +7,8 @@
   "main.bbl"
   "main.blg"
   (rewritten before read)
-["pdflatex"] 1780411437.82438 "/Users/andreearoica/Documents/NOVA IMS/Reinforcement Learning/Project/sepsis_project - Students Version/main.tex" "main.pdf" "main" 1780411438.3628 0
-  "/Users/andreearoica/Documents/NOVA IMS/Reinforcement Learning/Project/sepsis_project - Students Version/main.tex" 1780411437.73573 14968 d961d55bd69dcd16d50a520c016911a5 ""
+["pdflatex"] 1780512444.1412 "/Users/andreearoica/Documents/NOVA IMS/Reinforcement Learning/Project/sepsis_project - Students Version/Report/main.tex" "main.pdf" "main" 1780512444.83747 0
+  "/Users/andreearoica/Documents/NOVA IMS/Reinforcement Learning/Project/sepsis_project - Students Version/Report/main.tex" 1780512443.3392 25974 fe5b31c691aabbe735f59e36d2e33f09 ""
   "/usr/local/texlive/2026basic/texmf-dist/fonts/tfm/public/amsfonts/cmextra/cmex7.tfm" 1246382020 1004 54797486969f23fa377b128694d548df ""
   "/usr/local/texlive/2026basic/texmf-dist/fonts/tfm/public/amsfonts/cmextra/cmex8.tfm" 1246382020 988 bdf658c3bfc2d96d3c8b02cfc1c94c20 ""
   "/usr/local/texlive/2026basic/texmf-dist/fonts/tfm/public/cm/cmbx10.tfm" 1136768653 1328 c834bbb027764024c09d3d2bf908b5f0 ""
@@ -27,8 +27,11 @@
   "/usr/local/texlive/2026basic/texmf-dist/fonts/tfm/public/cm/cmsy8.tfm" 1136768653 1120 8b7d695260f3cff42e636090a8002094 ""
   "/usr/local/texlive/2026basic/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx10.pfb" 1248133631 34811 78b52f49e893bcba91bd7581cdc144c0 ""
   "/usr/local/texlive/2026basic/texmf-dist/fonts/type1/public/amsfonts/cm/cmbx12.pfb" 1248133631 32080 340ef9bf63678554ee606688e7b5339d ""
+  "/usr/local/texlive/2026basic/texmf-dist/fonts/type1/public/amsfonts/cm/cmmi10.pfb" 1248133631 36299 5f9df58c2139e7edcf37c8fca4bd384d ""
   "/usr/local/texlive/2026basic/texmf-dist/fonts/type1/public/amsfonts/cm/cmr10.pfb" 1248133631 35752 024fb6c41858982481f6968b5fc26508 ""
   "/usr/local/texlive/2026basic/texmf-dist/fonts/type1/public/amsfonts/cm/cmr12.pfb" 1248133631 32722 d7379af29a190c3f453aba36302ff5a9 ""
+  "/usr/local/texlive/2026basic/texmf-dist/fonts/type1/public/amsfonts/cm/cmr8.pfb" 1248133631 32726 0a1aea6fcd6468ee2cf64d891f5c43c8 ""
+  "/usr/local/texlive/2026basic/texmf-dist/fonts/type1/public/amsfonts/cm/cmsy8.pfb" 1248133631 32626 4f5c1b83753b1dd3a97d1b399a005b4b ""
   "/usr/local/texlive/2026basic/texmf-dist/tex/context/base/mkii/supp-pdf.mkii" 1461363279 71627 94eb9990bed73c364d7f53f960cc8c5b ""
   "/usr/local/texlive/2026basic/texmf-dist/tex/generic/bigintcalc/bigintcalc.sty" 1576625341 40635 c40361e206be584d448876bba8a64a3b ""
   "/usr/local/texlive/2026basic/texmf-dist/tex/generic/bitset/bitset.sty" 1576016050 33961 6b5c75130e435b2bfdb9f480a09a39f9 ""
@@ -88,12 +91,18 @@
   "/usr/local/texlive/2026basic/texmf-var/fonts/map/pdftex/updmap/pdftex.map" 1776012919 378087 4b8d5243fcbaa795fbf92299894b3b8d ""
   "/usr/local/texlive/2026basic/texmf-var/web2c/pdftex/pdflatex.fmt" 1776008806 2966192 6601d9c55f55da0635da23bb92d8bb9f ""
   "/usr/local/texlive/2026basic/texmf.cnf" 1772405582 628 bbc09d6d38872d53c11bb48dc9b14e88 ""
+  "Graph_1.png" 1780509365.89889 80749 c270c6e9b59b1774d6d4c38fabf1b33f ""
+  "Graph_2.png" 1780509383.69672 70771 37010b0803b1f8c4b77f360fd1b3dd2e ""
+  "Graph_3.png" 1780509397.9892 71762 f0360d2e59beb3b644a5ec86bf2ebd77 ""
+  "Graph_4.png" 1780509407.81175 80608 67efffd556230d99c5bb236d2bd74474 ""
+  "Graph_5.png" 1780509417.82665 68010 8730162d6046547eda47e9def9ef4f46 ""
+  "Graph_6.png" 1780509428.42142 60027 3e4e392e130545cbdc0f8adcc89368e3 ""
   "best_actions_across_states.png" 1780403541.4066 25515 3c3d32e73d46182d88a8a28adf44d848 ""
-  "main.aux" 1780411438.31702 4942 8b713bbd03bb62f0585fb7dba3039737 "pdflatex"
+  "main.aux" 1780512444.7882 7692 37e98dddacd50acc88968f16d544ec82 "pdflatex"
   "main.bbl" 0 -1 0 "bibtex main"
-  "main.out" 1780411438.31768 5173 adaa10471c05737e8c267b553e028802 "pdflatex"
-  "main.tex" 1780411437.73573 14968 d961d55bd69dcd16d50a520c016911a5 ""
-  "main.toc" 1780411438.31783 2779 518f6c3b6f2b9125e7a479affe00f333 "pdflatex"
+  "main.out" 1780512444.78896 5469 1769f21664e4c9636ea9087d4de11c3e "pdflatex"
+  "main.tex" 1780512443.3392 25974 fe5b31c691aabbe735f59e36d2e33f09 ""
+  "main.toc" 1780512444.78913 2824 cb17f76fa2c8dffcced7f6e7a247e831 "pdflatex"
   "policy_agreement_ensemble_analysis.png" 1780411156.39881 173486 dcb48f9ad1fea43859d801359cad3dca ""
   (generated)
   "main.aux"

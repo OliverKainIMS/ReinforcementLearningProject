@@ -78,6 +78,7 @@ At the end of each episode, the agent receives a terminal reward of +1 if the pa
 
 
 \subsection{Configuration A: Discrete State Space}
+\label{sec:config_a}
 In Configuration A, the environment provides a discrete representation of the patient state. 
 Each observation corresponds to an integer between 0 and 715, 
 resulting in a finite state space of 716 possible clinical states. 
@@ -113,45 +114,157 @@ extract meaningful treatment strategies beyond random exploration.
 
 
 \subsection{Configuration B: Continuous Observation Space}
-- 47-dimensional physiological vector, need for function approximation, challenges of continuous observations
+
+In Configuration B, the environment provides a continuous representation of the patient state, composed of 47 normalized physiological measurements. 
+The same exact state is unlikely to be observed repeatedly, which motivates the use of function approximation. 
+
+The action space remains discrete, with 25 possible actions. Although, because the observation space is continuous, 
+the full tabular transition matrix used in Configuration A is no longer directly available or practical to analyze. 
+As a result, the initial analysis focused on the structure of the observation vector, the clinical dimensionality of the input, the action space, 
+and the additional environment flags used to monitor specific sources of uncertainty. 
+
+The Configuration B environment also includes wrappers that introduce additional clinical realism: 
+AcuteEventEnv, EpisodicMissingObsEnv, and EpisodicNoisyObsEnv. 
+These wrappers generate episodes with environment-defined acute clinical events, missing features, and noisy observations. 
+
+As in Configuration A, a random-policy baseline (50,000 episodes) was evaluated to establish a minimum performance threshold.  
 
 \section{Methodology}
 \subsection{Evaluation Metrics}
-Explain: average return, success/ survival rate, convergence speed, stability/ variance, exploration behavior
+
+Several metrics were used to assess the quality and efficiency of the learned policies. 
+
+The primary performance measure was the mean return, representing the average cumulative reward obtained during evaluation. 
+Since the environment includes a treatment-intensity penalty, this metric reflects both patient survival and treatment efficiency.
+
+The survival rate was additionally reported as the percentage of episodes ending in patient survival, 
+providing a clinically interpretable measure of policy quality. 
+Furthermore, the mean episode length was recorded to analyse how long patient trajectories remained active before reaching a terminal outcome.
+
+To evaluate the optimisation process itself, 
+convergence speed was measured using the number of iterations required to reach a stable solution, 
+while policy stability was assessed by tracking the number of states whose selected action changed between successive iterations. 
+
+UPDATE WITH INFO FROM CONFIG B IF SOMETHING IS WRONG OR ADDED
+
 
 \subsection{Configuration A Algorithms}
 
-\subsubsection{Policy Iteration}
-Core idea, why appropriate for config A, update equations (briefly), hyperparameters.
+\subsubsection{Policy Iteration \& Value Iteration}
 
-\subsubsection{Value Iteration}
-Core idea, differences from policy iteration, update equations (briefly), hyperparameters.
+Considering the nature of Configuration A, described in Section \ref{sec:config_a}, 
+Policy Iteration and Value Iteration were selected as the primary algorithms for this configuration. 
+Both methods are guaranteed to converge to the optimal policy in finite MDPs and provide a strong benchmark for the best achievable performance in the tabular setting.
+Additionally, comparing the policies and convergence behaviour of both algorithms allows the correctness of the implementation
+to be validated while highlighting potential differences in computational efficiency.
 
 \subsubsection{Training Setup}
-Episodes, seeds, discount factor, learning rate, epsilon-decay, etc.
+Experiments were conducted using a treatment-intensity penalty of $\lambda = 0.02$ and a SOFA bias of 5.0. 
+Both Policy Iteration and Value Iteration were executed with a discount factor of $\gamma = 1.0$. 
+Convergence was determined using the maximum change in the value function, with a threshold of $\theta = 10^{-8}$ for Policy Iteration 
+and $\theta = 10^{-4}$ for Value Iteration. 
+Runtime and convergence statistics were recorded to compare the computational efficiency of the algorithms.
 
 \subsection{Configuration B Algorithms}
 \subsubsection{Double DQN}
-Neural network architecture, replay buffer/ policy updates, why chosen for continuous observations
 
-\subsubsection{PPO}
-Policy gradient method, why chosen for continuous actions
+Double DQN was selected as the value-based deep RL method for Configuration B. 
+Since the agent observes a 47-dimensional continuous clinical vector, a tabular Q-table is not feasible. 
+Instead, Double DQN approximates Q(s,a) with a neural network, 
+allowing the agent to generalise across similar patient states while still handling the discrete action space of 25 treatment combinations.
+
+The method uses experience replay and a target network to improve training stability. 
+Experience replay stores transitions and samples mini batches uniformly at random, reducing temporal correlation between consecutive observations. 
+The buffer size controls how much old experience is retained. The target network provides more stable bootstrap targets. 
+Double DQN further reduces Q-value overestimation by using the online network to select the next action and the target network to evaluate it. 
+This makes it suitable for a stochastic clinical environment with continuous observations and discrete treatment decisions.
+
+For Double DQN, the search space included the learning rate, exploration fraction, minimum epsilon, batch size, replay buffer size, 
+target-network update frequency, number of gradient steps and hidden-layer size.
+
+\subsubsection{Proximal Policy Optimization (PPO)}
+
+PPO was selected as the policy-gradient method for Configuration B. Unlike Double DQN, which learns action-value functions, 
+PPO directly optimizes a parameterized policy using an actor-critic architecture. 
+The actor decides which action to take, while the critic estimates the value of the current state to evaluate those actions.
+
+As an on-policy method, PPO learns exclusively from fresh rollouts collected by the current policy, 
+eliminating the need for an experience replay buffer or target networks. 
+Instead, it computes advantage estimates via Generalized Advantage Estimation (GAE) and updates the policy using a clipped surrogate objective. 
+This clipping mechanism restricts the magnitude of policy updates, preventing destructive steps and ensuring training stability. 
+PPO serves as an ideal counterpoint to Double DQN, enabling a direct performance comparison between an off-policy value-based method 
+and an on-policy policy-gradient method.
+
+For PPO, the search space included the learning rate, GAE lambda, clipping parameter, entropy coefficient, value coefficient, 
+rollout length, number of update epochs, mini-batch size and hidden-layer sizes.
+
 
 \subsubsection{Training Setup}
-Architecture, batch size, optimizer, learning schedule, hardware/runtime considerations.
+
+After defining the Double DQN and PPO agents, a common training setup was used to ensure that the comparison between algorithms 
+was fair and a random seed was set to ensure reproducibility.
+
+Hyperparameter tuning was performed with Optuna over predefined search spaces. 
+The candidate values were defined in advance, but the final configurations were selected automatically 
+through the optimization process rather than by manual trial-and-error. 
+
+To reduce computational cost, the tuning stage used shorter runs than the final experiments. 
+For each algorithm, Optuna was run for 20 trials. 
+In each trial, a candidate configuration was trained for 10 000 episodes and evaluated over 500 episodes. 
+During this process, configurations were compared using a multi-objective criterion that maximized both survival rate and mean return.
+
+Since the optimization involved two objectives, Optuna did not return a single best configuration directly. 
+Instead, it produced a Pareto frontier containing the non-dominated configurations, 
+representing the best trade-offs between survival rate and mean return. 
+From this set, the final configuration was selected by prioritizing survival rate first and mean return second. 
+This reflects the clinical priority of maximizing patient survival, 
+while still accounting for the overall quality of the learned policy. 
+After the tuning stage, the selected hyperparameter configuration for each algorithm was used to perform a full training run of 50 000 episodes.
+
 
 \section{Results and Evaluation}
 Figures and analysis.
 
 \subsection{Configuration A Results}
-\subsubsection{Training Curves}
-Reward Evolution, convergence plots.
+\subsubsection{Evaluation Results}
 
-\subsubsection{Performance Comparison}
-Results table, stability analysis, exploration vs exploitation discussion.
+Both Policy Iteration and Value Iteration produced identical results, achieving a mean return of 0.7865, a survival rate of 82.52\%, 
+and an average episode length of 9.85 steps. 
+The similarity of the survival-rate curves shown in Figures \ref{app:fig:policy_iteration_survival_rate} 
+and \ref{app:fig:value_iteration_survival_rate} 
+further confirms that both algorithms converged to the same treatment policy.
 
-\subsubsection{Policy Interpretation}
-Which actions are preferred, clinical interpretation, interesting patterns.
+This outcome is expected, as both algorithms solve the same finite MDP and are guaranteed to converge to the optimal policy. 
+The agreement between the two approaches provides additional confidence in the correctness of the implementation and indicates 
+that the resulting policy represents the optimal solution for the environment (see Figures \ref{app:fig:policy_iteration_survival_rate} and \ref{app:fig:value_iteration_survival_rate}).
+
+\subsubsection{Convergence Analysis}
+
+Both algorithms converged successfully to the same optimal policy, but their convergence behavior differed considerably. 
+
+For Policy Iteration, the number of states changing action decreased rapidly from 386 in the first policy-improvement 
+round to 85, then 5, before reaching zero in the fourth iteration (see Figure \ref{app:fig:states_changing}). 
+This indicates that most policy improvements were identified early in the optimization process. 
+Policy evaluation required between 172 and 194 iterations per round before convergence was achieved, 
+resulting in a total of 736 value updates.
+
+Value Iteration followed a more gradual convergence process. 
+The maximum Bellman update error decreased from 0.7076 in the first iteration to below 0.0001 after 81 iterations 
+(see Figure \ref{app:fig:bellman_update_difference}). 
+The number of policy changes also declined steadily, reaching zero from iteration 61 onwards. 
+The logarithmic representation in Figure \ref{app:fig:value_function_convergence_log} 
+highlights the consistent reduction in value-function error across iterations and confirms stable convergence 
+towards the optimal solution. While Value Iteration required substantially more iterations than Policy Iteration, 
+both methods ultimately recovered the same policy.
+
+
+\subsubsection{Computational Performance}
+Despite producing identical policies, the algorithms differed considerably in runtime. 
+As shown in Table \ref{tab:convergence}, Policy Iteration completed in 5.78 seconds, whereas Value Iteration required 27.28 seconds. 
+Consequently, Policy Iteration was approximately 4.7 times faster for this environment.
+
+Given that both algorithms achieved identical evaluation results, 
+Policy Iteration represents the more computationally efficient approach for Configuration A (see Table \ref{tab:convergence}).
 
 \subsection{Configuration B Results}
 \subsubsection{Training Curves}
@@ -159,7 +272,7 @@ Which actions are preferred, clinical interpretation, interesting patterns.
 \subsubsection{Deep RL Behavior Analysis}
 Learning stability, sample efficiency, generalization observations.
 
-\subsection{Config A vs Config B Comparison}
+\subsection{Configuration A vs Configuration B Comparison}
 Include comparison table, tabular RL vs deep RL, computational complexity, interpretability, stability, state representation differences,
 when deep RL becomes necessary.
 
@@ -255,16 +368,78 @@ References: Komorowski et al. (AI Clinician paper), Sutton and Barto (RL book), 
 \begin{figure}[h]
     \centering
     \includegraphics[width=1.0\textwidth]{best_actions_across_states.png}
-    \caption{Distribution of Best Actions Across States.}
+    \caption{Distribution of Optimal Actions Selected Across All States.}
     \label{app:fig:best_actions}
 \end{figure}
 
 \begin{figure}[h]
     \centering
+    \includegraphics[width=1.0\textwidth]{Graph_1.png}
+    \caption{Policy Iteration Moving-Average Survival Rate over 50,000 Evaluation Episodes.}
+    \label{app:fig:policy_iteration_survival_rate}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=1.0\textwidth]{Graph_2.png}
+    \caption{Number of States Changing During Successive Policy Iteration Improvement Steps.}
+    \label{app:fig:states_changing}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=1.0\textwidth]{Graph_3.png}
+    \caption{Convergence of the Value Function During Policy Iteration Shown on a Log Scale.}
+    \label{app:fig:value_function_convergence}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=1.0\textwidth]{Graph_4.png}
+    \caption{Value Iteration Moving-Average Survival Rate over 50,000 Evaluation Episodes.}
+    \label{app:fig:value_iteration_survival_rate}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=1.0\textwidth]{Graph_5.png}
+    \caption{Decrease in the Maximum Bellman Update Difference During Value Iteration.}
+    \label{app:fig:bellman_update_difference}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=1.0\textwidth]{Graph_6.png}
+    \caption{Log-Scale Convergence of the Value Function During Value Iteration.}
+    \label{app:fig:value_function_convergence_log}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
     \includegraphics[width=1.0\textwidth]{policy_agreement_ensemble_analysis.png}
-    \caption{Policy Agreement and Ensemble Analysis in Configuration B.}
+    \caption{Comparison of Policy Agreement, Action Distributions, and Performance Metrics for DDQN, PPO, and Ensemble Policies under Configuration B.}
     \label{app:fig:policy_agreement_ensemble_analysis}
 \end{figure}
+
+\clearpage
+\section{Tables}
+
+\begin{table}[ht]
+\centering
+\caption{Comparison of convergence performance between Policy Iteration and Value Iteration}
+\label{tab:convergence}
+\renewcommand{\arraystretch}{1.3}
+
+\begin{tabular}{lcccc}
+\hline
+\textbf{Algorithm} & \textbf{Runtime (s)} & \textbf{Convergence Type} & \textbf{Convergence Count} & \textbf{Value Updates} \\
+\hline
+Policy Iteration & 5.7848 & Policy improvement rounds & 4  & 736 \\
+Value Iteration  & 27.2828 & Bellman updates           & 81 & 81  \\
+\hline
+\end{tabular}
+
+\end{table}
 
 \clearpage
 \addcontentsline{toc}{section}{References}

@@ -33,6 +33,7 @@ Assignment notes
 """
 
 import numpy as np
+import pandas as pd
 import random
 import torch
 import torch.nn as nn
@@ -871,6 +872,7 @@ def run_optuna(
     n_trials=10,
     n_episodes_tune=500,
     eval_episodes=200,
+    eval_seeds=None,
     metric='combined',
     seed=SEED,
     device='cpu',
@@ -901,6 +903,8 @@ def run_optuna(
         Training episodes per trial.
     eval_episodes : int
         Episodes used to score each trial.
+    eval_seeds : list[int] or None
+        Optional list of seeds to use for a more robust evaluation. If None, a single seed is used.
     metric : str
         'return' -> maximise mean return.
         'survival' -> maximise survival rate.
@@ -918,34 +922,63 @@ def run_optuna(
         raise ImportError("optuna is not installed. `pip install optuna`.")
 
     a = algo.lower().replace(' ', '_').replace('-', '_')
-    is_dqn = a in ('dqn', 'ddqn', 'double_dqn', 'double')
-    is_double = a in ('ddqn', 'double_dqn', 'double')
+    if a not in ('ddqn', 'double_dqn', 'double', 'ppo'):
+        raise ValueError(
+            f"Unknown algo {algo!r}. Choose 'ddqn', 'double_dqn' or 'ppo'."
+        )
+
+    if eval_seeds is None:
+        eval_seeds = [seed]
 
     def objective(trial):
-        if is_dqn:
-            params = _suggest_dqn_params(trial, double=is_double)
-            hist = train_dqn(
-                n_episodes=n_episodes_tune, double=is_double,
-                seed=seed, device=device, **params,
-            )
+        # train the agent with the trial's hyperparameters 
+        if a in ('ddqn', 'double_dqn', 'double'):
+            params = _suggest_dqn_params(trial, double=True)
+            hist = train_dqn(n_episodes=n_episodes_tune, double=True, seed=seed, device=device, **params)
+
         elif a == 'ppo':
             params = _suggest_ppo_params(trial)
-            hist = train_ppo(
-                n_episodes=n_episodes_tune, seed=seed, device=device, **params,
-            )
+            hist = train_ppo(n_episodes=n_episodes_tune, seed=seed, device=device, **params)
+
+        # evaluate the trained agent with multiple seeds and average the results 
+        seed_summaries = []
+
+        for eval_seed in eval_seeds:
+            m = evaluate_policy_b(hist['agent'], n_episodes=eval_episodes, seed=eval_seed,)
+            seed_summaries.append(m.summary())
+        
+        survival_rates = np.array([s['survival_rate'] for s in seed_summaries],dtype=float)
+        mean_returns = np.array([s['mean_return'] for s in seed_summaries], dtype=float)
+
+        # Average results
+        survival_rate_mean = float(survival_rates.mean())
+        mean_return_mean = float(mean_returns.mean())
+
+        # Standard deviation across eval seeds (0.0 if only one seed)
+        if len(eval_seeds) > 1:
+            survival_rate_std = float(survival_rates.std(ddof=1))
+            mean_return_std = float(mean_returns.std(ddof=1))
         else:
-            raise ValueError(f"Unknown algo {algo!r}. Choose 'dqn', 'ddqn' or 'ppo'.")
+            survival_rate_std = 0.0
+            mean_return_std = 0.0
 
-        m = evaluate_policy_b(hist['agent'], n_episodes=eval_episodes, seed=seed)
-        s = m.summary()
+        # Saving aditional info as trial attributes
+        trial.set_user_attr("survival_rate_mean", survival_rate_mean)
+        trial.set_user_attr("survival_rate_std", survival_rate_std)
+        trial.set_user_attr("mean_return_mean", mean_return_mean)
+        trial.set_user_attr("mean_return_std", mean_return_std)
+        trial.set_user_attr("eval_seeds", list(eval_seeds))
+        trial.set_user_attr("eval_episodes_per_seed", eval_episodes)
 
+        # Return the selected metric for optimization
         if metric == 'survival':
-            return s['survival_rate']
+            return survival_rate_mean
         elif metric == 'combined':
-            return s['survival_rate'], s['mean_return']
+            return survival_rate_mean, mean_return_mean
         else:
-            return s['mean_return']
+            return mean_return_mean
 
+    # Defining the sampler and study based on the selected metric
     if metric == 'combined':
         study = optuna.create_study(
             directions=['maximize', 'maximize'],
@@ -957,11 +990,8 @@ def run_optuna(
             sampler=optuna.samplers.TPESampler(seed=seed),
         )
 
-    study.optimize(
-        objective,
-        n_trials=n_trials,
-        show_progress_bar=verbose,
-    )
+    # Run the optimization
+    study.optimize(objective, n_trials=n_trials, show_progress_bar=verbose)
 
     if metric == 'combined':
         # Multi-objective Optuna returns a Pareto frontier, not one best trial.
@@ -984,6 +1014,106 @@ def run_optuna(
         best['hidden2'] = arch
 
     return best, study
+
+#---------------------------------------------------------------------------------------------------------------------------------------------------
+                                                            # Note on Optuna trials:
+# In Optuna, a `trial` represents one hyperparameter attempt. We do not create trial objects manually. 
+# When study.optimize(...) is called, Optuna creates one Trial object per attempt and passes it into the objective  and _suggest_..._params functions. 
+# The trial object is then used to sample hyperparameters and to store extra evaluation statistics such as multi-seed means and standard deviations.
+#---------------------------------------------------------------------------------------------------------------------------------------------------
+
+# --- Final Evaluation ---
+def evaluate_policy_multiseed(agent, eval_seeds, n_episodes):
+    """ Evaluate the given agent across multiple seeds and return overall and
+    stratified summaries.
+
+    Parameters
+    ----------
+    agent : DQNAgent or PPOAgent
+        The trained agent to evaluate.
+    eval_seeds : list[int]
+        List of random seeds to use for evaluation. 
+    n_episodes : int
+        Number of episodes to run for each seed.
+
+    Returns
+    -------
+    dict
+        'summary': overall mean/std across seeds.
+        'per_seed': per-seed overall metrics.
+        'stratified': mean/std metrics by clinical failure mode.
+        'stratified_per_seed': per-seed stratified metrics.
+        'metrics_by_seed': raw EvalMetricsB objects for further analysis.
+    """
+
+    rows = []
+    stratified_rows = []
+    metrics_by_seed = {}
+
+    for eval_seed in eval_seeds:
+        m = evaluate_policy_b(agent, n_episodes=n_episodes,seed=eval_seed,)
+        s = m.summary()
+
+        # Save results from this seed
+        rows.append({
+            "seed": eval_seed,
+            "mean_return": s["mean_return"],
+            "survival_rate": s["survival_rate"],
+            "mean_length": s["mean_length"],
+        })
+        metrics_by_seed[eval_seed] = m
+
+        # Stratified results by clinical failure mode
+        # Create boolean masks for each failure mode across all episodes in this seed's evaluation
+        returns_arr = np.array(m.episode_returns)
+        noisy_mask = np.array(m.noisy_flags)
+        missing_mask = np.array(m.missing_flags)
+        acute_mask = np.array(m.acute_flags)
+
+        strata = [("Noisy", noisy_mask), ("Clean", ~noisy_mask),
+                  ("Missing obs", missing_mask), ("Complete obs", ~missing_mask),
+                ("Acute event", acute_mask),("No acute", ~acute_mask)]
+
+        for label, mask in strata:
+            if mask.sum() == 0:
+                continue
+
+            selected_returns = returns_arr[mask]
+
+            stratified_rows.append({
+                "seed": eval_seed,
+                "group": label,
+                "n_episodes": int(mask.sum()),
+                "mean_return": float(selected_returns.mean()),
+                "survival_rate": float((selected_returns > 0).mean()),
+            })
+
+
+    df = pd.DataFrame(rows)
+    stratified_per_seed_df = pd.DataFrame(stratified_rows)
+
+    # Aggregate results across seeds to get overall mean and std for each metric
+    summary = {
+        "mean_return": float(df["mean_return"].mean()),
+        "mean_return_std": float(df["mean_return"].std(ddof=1)),
+        "survival_rate": float(df["survival_rate"].mean()),
+        "survival_rate_std": float(df["survival_rate"].std(ddof=1)),
+        "mean_length": float(df["mean_length"].mean()),
+        "mean_length_std": float(df["mean_length"].std(ddof=1)),
+    }
+
+    # Aggregate stratified results across seeds to get mean and std for each group
+    stratified_df = (stratified_per_seed_df.groupby("group")
+        .agg(
+            mean_return=("mean_return", "mean"),
+            mean_return_std=("mean_return", "std"),
+            survival_rate=("survival_rate", "mean"),
+            survival_rate_std=("survival_rate", "std"),
+        )
+        .reset_index()
+    )
+
+    return {"summary": summary, "per_seed": df, "stratified": stratified_df, "stratified_per_seed": stratified_per_seed_df, "metrics_by_seed": metrics_by_seed}
 
 # --- Plotting utilities ---
 

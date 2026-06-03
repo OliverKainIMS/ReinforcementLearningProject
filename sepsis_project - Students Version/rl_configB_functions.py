@@ -6,24 +6,24 @@ Clinical ICU-Sepsis environment with continuous observations.
 
 Contents
 --------
-  EvalMetricsB              – episode statistics tracker
-  evaluate_policy_b         – greedy evaluation on make_clinical_env()
-  QNetwork                  – feedforward Q-network (47 -> hidden -> 25)
-  ActorCritic               – shared-trunk actor-critic network for PPO
-  ReplayBuffer              – uniform circular experience replay buffer
-  DQNAgent                  – DQN / Double-DQN agent (double=True for Double DQN)
-  PPOAgent                  – PPO agent with GAE
-  train_dqn                 – DQN / Double-DQN training loop
-  train_ppo                 – PPO training loop
-  run_optuna                – Optuna hyperparameter search for all three algorithms
-  moving_average            – causal moving average (preserves sequence length)
-  dqn_convergence_episode   – estimate convergence episode from returns
-  plot_return_curves        – comparison learning-curve plot (return)
-  plot_survival_curves      – comparison learning-curve plot (survival rate)
+  EvalMetricsB              - episode statistics tracker
+  evaluate_policy_b         - greedy evaluation on make_clinical_env()
+  QNetwork                  - feedforward Q-network (47 -> hidden -> 25)
+  ActorCritic               - shared-trunk actor-critic network for PPO
+  ReplayBuffer              - uniform circular experience replay buffer
+  DQNAgent                  - DQN / Double-DQN agent (double=True for Double DQN)
+  PPOAgent                  - PPO agent with GAE
+  train_dqn                 - DQN / Double-DQN training loop
+  train_ppo                 - PPO training loop
+  run_optuna                - Optuna hyperparameter search for all three algorithms
+  moving_average            - causal moving average (preserves sequence length)
+  dqn_convergence_episode   - estimate convergence episode from returns
+  plot_return_curves        - comparison learning-curve plot (return)
+  plot_survival_curves      - comparison learning-curve plot (survival rate)
 
 Assignment notes
 ----------------
-  DQN and Double DQN are off-policy value-based methods. Their two key knobs
+  Double DQN are off-policy value-based methods. Their two key knobs
   are the **replay buffer size** (buffer_size) and the **target-network update
   frequency** (target_update_freq). These are explicit parameters in train_dqn
   and are included in the Optuna search space.
@@ -54,7 +54,7 @@ except ImportError:
 
 SEED      = 42
 N_OBS     = 47    # dimensionality of the continuous observation vector
-N_ACTIONS = 25    # 5 vasopressor levels × 5 IV-fluid dose levels
+N_ACTIONS = 25    # 5 vasopressor levels x 5 IV-fluid dose levels
 GAMMA     = 1.0   # no time discounting, following the ICU-Sepsis paper convention
 
 
@@ -257,10 +257,10 @@ class DQNAgent:
 
     Assignment focus hyperparameters
     ---------------------------------
-    buffer_size        : replay buffer capacity — a too-small buffer causes
+    buffer_size        : replay buffer capacity - a too-small buffer causes
                          catastrophic forgetting; a too-large one slows learning
                          because old transitions stay in the buffer too long.
-    target_update_freq : gradient steps between online->target syncs — too
+    target_update_freq : gradient steps between online->target syncs - too
                          frequent syncs reintroduce moving-target instability;
                          too infrequent syncs slow learning.
 
@@ -313,7 +313,7 @@ class DQNAgent:
 
         Parameters
         ----------
-        greedy : bool  – if True (evaluation), always exploit.
+        greedy : bool  - if True (evaluation), always exploit.
         """
         if not greedy and np.random.rand() < self.epsilon:
             return int(np.random.randint(self.n_actions))
@@ -556,7 +556,7 @@ def train_dqn(
         Fraction of n_episodes over which epsilon decays linearly from
         epsilon_start to epsilon_min. Kept small (0.05) because this
         environment already has high stochasticity from the clinical wrappers
-        — excessive exploration just adds noise to Q-value estimates without
+        - excessive exploration just adds noise to Q-value estimates without
         discovering meaningfully different states.
     gradient_steps : int
         Number of gradient updates per environment step. Values > 1 improve
@@ -1106,7 +1106,7 @@ def dqn_convergence_episode(returns, window=100, patience=5, threshold=0.02):
 
     Returns
     -------
-    int  – estimated convergence episode; len(returns) if never detected.
+    int  - estimated convergence episode; len(returns) if never detected.
     """
     ma = np.convolve(
         np.array(returns, dtype=float), np.ones(window) / window, mode='valid'

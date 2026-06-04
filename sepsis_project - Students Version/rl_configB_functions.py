@@ -36,6 +36,10 @@ import numpy as np
 import pandas as pd
 import random
 import torch
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print("Using device:", DEVICE)
+if torch.cuda.is_available():
+    print(torch.cuda.get_device_name(0))
 import torch.nn as nn
 import torch.optim as optim
 from collections import deque
@@ -58,6 +62,9 @@ N_OBS     = 47    # dimensionality of the continuous observation vector
 N_ACTIONS = 25    # 5 vasopressor levels x 5 IV-fluid dose levels
 GAMMA     = 1.0   # no time discounting, following the ICU-Sepsis paper convention
 
+# --- Helper Function ---
+def get_default_device():
+    return "cuda" if torch.cuda.is_available() else "cpu"
 
 # --- Evaluation helpers ---
 
@@ -282,11 +289,10 @@ class DQNAgent:
         buffer_size=50_000,
         batch_size=64,
         target_update_freq=100,
-        tau=0.005,
         hidden1=128,
         hidden2=128,
         double=False,
-        device='cpu',
+        device=None,
     ):
         self.n_actions          = n_actions
         self.gamma              = gamma
@@ -294,10 +300,9 @@ class DQNAgent:
         self.epsilon_min        = epsilon_min
         self.batch_size         = batch_size
         self.target_update_freq = target_update_freq
-        self.tau                = tau
         self.buffer_size        = buffer_size
         self.double             = double
-        self.device             = torch.device(device)
+        self.device             = torch.device(device if device is not None else get_default_device())
 
         self.online_net = QNetwork(obs_dim, n_actions, hidden1, hidden2).to(self.device)
         self.target_net = QNetwork(obs_dim, n_actions, hidden1, hidden2).to(self.device)
@@ -365,13 +370,8 @@ class DQNAgent:
         self.optimizer.step()
 
         self.steps_done += 1
-        # Soft (Polyak) update every target_update_freq steps.
-        # Blending τ << 1 keeps the target changing slowly and smoothly,
-        # preventing the abrupt target jumps that cause Q-value instability.
         if self.steps_done % self.target_update_freq == 0:
-            for tp, op in zip(self.target_net.parameters(),
-                               self.online_net.parameters()):
-                tp.data.copy_(self.tau * op.data + (1.0 - self.tau) * tp.data)
+            self.target_net.load_state_dict(self.online_net.state_dict())
 
         return float(loss.item())
 
@@ -413,7 +413,7 @@ class PPOAgent:
         hidden1=128,
         hidden2=128,
         max_grad_norm=0.5,
-        device='cpu',
+        device=None,
     ):
         self.gamma          = gamma
         self.gae_lambda     = gae_lambda
@@ -424,7 +424,7 @@ class PPOAgent:
         self.update_epochs  = update_epochs
         self.minibatch_size = minibatch_size
         self.max_grad_norm  = max_grad_norm
-        self.device         = torch.device(device)
+        self.device         = torch.device(device if device is not None else get_default_device())
 
         self.net       = ActorCritic(obs_dim, n_actions, hidden1, hidden2).to(self.device)
         self.optimizer = optim.Adam(self.net.parameters(), lr=lr)
@@ -542,7 +542,7 @@ def train_dqn(
     hidden2=128,
     learning_starts=1000,
     seed=SEED,
-    device='cpu',
+    device=None,
     verbose=False,
     log_every=1000,
 ):
@@ -685,7 +685,7 @@ def train_ppo(
     hidden1=128,
     hidden2=128,
     seed=SEED,
-    device='cpu',
+    device=None,
     verbose=False,
     log_every=1000,
 ):
@@ -875,7 +875,7 @@ def run_optuna(
     eval_seeds=None,
     metric='combined',
     seed=SEED,
-    device='cpu',
+    device=None,
     verbose=False,
 ):
     """

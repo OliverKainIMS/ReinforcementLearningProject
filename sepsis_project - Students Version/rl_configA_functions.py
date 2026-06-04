@@ -12,8 +12,7 @@ from envs.env_setup import (
     make_sepsis_env,
 )
 
-
-# --- CONFIGURATION A: POLICY ITERATION ---
+# --- CONFIGURATION A: POLICY ITERATION AND VALUE ITERATION ---
 
 # 1. Build a deterministic policy evaluation function.
 
@@ -239,6 +238,154 @@ def policy_evaluation(policy, P, R, gamma=GAMMA, theta=1e-8, max_iterations=1000
 
     return V, delta_history
 
+# 2. Implement the value iteration algorithm.
+
+def value_iteration(P, R, gamma=GAMMA, theta=1e-8, max_iterations=1000):
+    """
+    Solve the MDP using the Value Iteration algorithm.
+
+    Value Iteration repeatedly applies the Bellman optimality
+    update to estimate the optimal state-value function.
+
+    Unlike Policy Iteration, which alternates between policy
+    evaluation and policy improvement, Value Iteration combines
+    both steps into a single update by directly selecting the
+    action with the highest expected return at every iteration.
+
+    The algorithm terminates once the maximum change in the
+    value function falls below the convergence threshold.
+
+    Parameters
+    ----------
+    P : np.ndarray
+        Transition probability matrix with shape:
+            (N_STATES, N_ACTIONS, N_STATES)
+
+        where:
+            P[s, a, s'] = probability of transitioning
+            from state s to state s' after taking action a.
+
+    R : np.ndarray
+        Reward matrix with shape:
+            (N_STATES, N_ACTIONS, N_STATES)
+
+        where:
+            R[s, a, s'] = reward received when transitioning
+            from state s to state s' using action a.
+
+    gamma : float, optional
+        Discount factor.
+        Default is GAMMA.
+
+    theta : float, optional
+        Convergence tolerance threshold.
+        Iteration stops when the maximum value-function update
+        falls below theta.
+        Default is 1e-8.
+
+    max_iterations : int, optional
+        Maximum number of value iteration updates.
+        Default is 1000.
+
+    Returns
+    -------
+    policy : np.ndarray
+        Optimal deterministic policy extracted from the
+        converged value function.
+
+        Shape: (N_STATES,)
+
+    value_table : np.ndarray
+        Final optimal state-value estimates.
+
+        Shape: (N_STATES,)
+
+    metrics : dict
+        Dictionary containing convergence statistics:
+
+        - iterations : int
+            Total number of value iteration updates performed.
+
+        - delta_history : list[float]
+            Maximum value-function change observed at each
+            iteration.
+
+        - policy_changes : list[int]
+            Number of states whose greedy action changed after
+            each value update.
+    """
+
+    value_table = np.zeros(N_STATES)
+
+    policy = np.zeros(N_STATES, dtype=int)
+
+    delta_history = []
+    policy_change_history = []
+
+    for iteration in range(1, max_iterations + 1):
+
+        updated_value_table = np.zeros_like(value_table)
+
+        for state in range(N_STATES):
+
+            q_values = np.zeros(N_ACTIONS)
+
+            for action in range(N_ACTIONS):
+
+                q_values[action] = np.sum(
+                    P[state, action]
+                    * (R[state, action] + gamma * value_table)
+                )
+
+            updated_value_table[state] = np.max(q_values)
+
+        # Compute largest value-function update
+        delta = np.max(
+            np.abs(updated_value_table - value_table)
+        )
+
+        delta_history.append(delta)
+
+        value_table = updated_value_table
+
+        # Extract greedy policy from updated values
+        new_policy = policy_improvement(
+            value_table,
+            P,
+            R,
+            gamma
+        )
+
+        # Count how many states changed action
+        changed_states = np.sum(policy != new_policy)
+
+        policy_change_history.append(changed_states)
+
+        policy = new_policy
+
+        print(
+            f"VI Iteration {iteration} | "
+            f"Delta: {delta:.10f} | "
+            f"Changed states: {changed_states}"
+        )
+
+        if delta < theta:
+
+            print(
+                f"Value iteration converged "
+                f"in {iteration} iterations"
+            )
+
+            break
+
+    metrics = {
+        "iterations": iteration,
+        "delta_history": delta_history,
+        "policy_changes": policy_change_history
+    }
+
+    return policy, value_table, metrics
+
 def policy_improvement(V, P, R, gamma=GAMMA):
     """
     Improve a policy greedily with respect to a value function.
@@ -383,263 +530,6 @@ def policy_iteration(P, R, gamma=GAMMA):
     }
 
     return policy, V, metrics
-
-
-# --- CONFIGURATION A: Q-LEARNING ---
-
-# 1. Train a Q-learning agent.
-
-def train_q_learning(n_episodes=10000, alpha=0.05, gamma=GAMMA, epsilon_start=1.0, epsilon_min=0.05, epsilon_decay=0.9995, q_init=0.0, 
-                     seed=SEED):
-
-    """
-    Train a Q-learning agent on the sepsis environment using
-    epsilon-greedy exploration.
-
-    Parameters
-    ----------
-    n_episodes : int, default=10000
-        Number of training episodes.
-
-    alpha : float, default=0.05
-        Learning rate controlling how strongly new information
-        updates existing Q-values.
-
-    gamma : float, default=GAMMA
-        Discount factor for future rewards.
-
-    epsilon_start : float, default=1.0
-        Initial exploration probability for epsilon-greedy policy.
-
-    epsilon_min : float, default=0.05
-        Minimum exploration rate after decay.
-
-    epsilon_decay : float, default=0.9995
-        Multiplicative decay applied to epsilon after each episode.
-
-    q_init : float, default=0.0
-        Initial value assigned to all entries in the Q-table.
-
-    seed : int, default=SEED
-        Random seed for reproducibility.
-
-    Returns
-    -------
-    dict
-        Dictionary containing:
-
-        - "Q" : np.ndarray
-            Learned Q-table of shape (N_STATES, N_ACTIONS).
-
-        - "returns" : list[float]
-            Total reward obtained per episode.
-
-        - "lengths" : list[int]
-            Number of steps taken in each episode.
-
-        - "survivals" : list[bool]
-            Whether the episode ended with positive reward.
-
-        - "epsilons" : list[float]
-            Epsilon value used for each episode.
-
-        - "td_errors" : list[float]
-            Absolute temporal-difference errors recorded during training.
-
-        - "q_changes" : list[float]
-            Mean absolute Q-table change after each episode.
-
-        - "exploration_ratio" : list[float]
-            Fraction of exploratory actions taken per episode.
-
-    Notes
-    -----
-    The agent follows an epsilon-greedy policy:
-    - Explore with probability epsilon
-    - Exploit the best-known action otherwise
-
-    Epsilon decays after every episode until epsilon_min is reached.
-    """
-
-    env = make_sepsis_env()
-
-    np.random.seed(seed)
-
-    Q = np.ones((N_STATES, N_ACTIONS)) * q_init
-
-    epsilon = epsilon_start
-
-    returns = []
-    lengths = []
-    survivals = []
-    epsilons = []
-
-    td_error_history = []
-    q_change_history = []
-    exploration_history = []
-
-    for ep in range(n_episodes):
-
-        state, _ = env.reset(seed=np.random.randint(100000))
-
-        done = False
-        total_reward = 0
-        steps = 0
-
-        explore_count = 0
-        exploit_count = 0
-
-        Q_old = Q.copy()
-
-        while not done:
-
-            # epsilon-greedy
-            if np.random.rand() < epsilon:
-                action = np.random.randint(N_ACTIONS)
-                explore_count += 1
-            else:
-                action = np.argmax(Q[state])
-                exploit_count += 1
-
-            next_state, reward, terminated, truncated, _ = env.step(action)
-
-            done = terminated or truncated
-
-            # Q-learning update
-            best_next = np.argmax(Q[next_state])
-
-            td_target = reward + gamma * Q[next_state, best_next]
-
-            td_error = td_target - Q[state, action]
-
-            Q[state, action] += alpha * td_error
-
-            td_error_history.append(abs(td_error))
-
-            state = next_state
-            total_reward += reward
-            steps += 1
-
-        q_change = np.mean(np.abs(Q - Q_old))
-
-        q_change_history.append(q_change)
-
-        exploration_ratio = explore_count / max(1, explore_count + exploit_count)
-
-        exploration_history.append(exploration_ratio)
-
-        returns.append(total_reward)
-        lengths.append(steps)
-        survivals.append(total_reward > 0)
-        epsilons.append(epsilon)
-
-        # epsilon decay
-        epsilon = max(epsilon_min, epsilon * epsilon_decay)
-
-    env.close()
-
-    return {
-    "Q": Q,
-    "returns": returns,
-    "lengths": lengths,
-    "survivals": survivals,
-    "epsilons": epsilons,
-    "td_errors": td_error_history,
-    "q_changes": q_change_history,
-    "exploration_ratio": exploration_history
-}
-
-
-# 2. Sample parameters for hyperparameter tuning.
-
-def sample_params(param_grid):
-
-    """
-    Randomly sample a set of hyperparameters from a parameter grid.
-
-    Parameters
-    ----------
-    param_grid : dict
-        Dictionary containing lists of candidate values for each
-        hyperparameter.
-
-        Expected keys:
-        - "alpha"
-        - "epsilon_decay"
-        - "epsilon_min"
-        - "q_init"
-
-    Returns
-    -------
-    dict
-        Dictionary containing one randomly selected value for
-        each hyperparameter.
-
-    """
-
-    return {
-        "alpha": random.choice(param_grid["alpha"]),
-        "epsilon_decay": random.choice(param_grid["epsilon_decay"]),
-        "epsilon_min": random.choice(param_grid["epsilon_min"]),
-        "q_init": random.choice(param_grid["q_init"]),
-    }
-
-# 3. Helper function to estimate training convergence.
-# We are defining convergence as "when moving average return does not improve significantly for several consecutive episodes".
-
-def q_convergence_episode(returns, window=100, patience = 5, threshold=0.02):
-    
-    """
-    Estimate the convergence episode for Q-learning training
-    using a moving average stability criterion.
-
-    Parameters
-    ----------
-    returns : list[float] or np.ndarray
-        Episode return values collected during training.
-
-    window : int, default=100
-        Window size used to compute the moving average of returns.
-
-    patience : int, default=5
-        Number of consecutive moving-average updates that must
-        remain within the improvement threshold before convergence
-        is declared.
-
-    threshold : float, default=0.02
-        Minimum required improvement between consecutive moving
-        average values. Changes smaller than this threshold are
-        considered stagnant.
-
-    Returns
-    -------
-    int
-        Estimated episode index where convergence occurred.
-        If convergence is not detected, returns the total
-        number of episodes.
-
-    Notes
-    -----
-    The function computes a moving average over episode returns:
-            MA_t = mean(returns[t-window : t])
-    """
-
-    ma = np.convolve(returns, np.ones(window)/window, mode='valid')
-    
-    stagnant = 0
-    
-    for i in range(1, len(ma)):
-        if abs(ma[i] - ma[i-1]) < threshold:
-            stagnant += 1
-        else:
-            stagnant = 0
-
-        if stagnant >= patience:
-            return i
-            
-    return len(returns)
-
-
 
 # --- CONFIGURATION A: LEARNING CURVES ---
 

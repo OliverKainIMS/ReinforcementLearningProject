@@ -1,0 +1,49 @@
+{
+  "algo": "ddqn",
+  "seed": 0,
+  "episodes": 50000,
+  "eval_episodes": 2000,
+  "val_survival": 0.688,
+  "val_return": 0.59613,
+  "best_checkpoint_episode": 32000,
+  "test_mean_return": 0.57741025,
+  "test_mean_return_std": 0.007606381336170966,
+  "test_survival_rate": 0.6647,
+  "test_survival_rate_std": 0.009801785551622717,
+  "test_mean_length": 9.3048,
+  "per_seed": [
+    {
+      "seed": 101,
+      "mean_return": 0.5797049999999999,
+      "survival_rate": 0.6695,
+      "mean_length": 9.501
+    },
+    {
+      "seed": 202,
+      "mean_return": 0.5804412500000001,
+      "survival_rate": 0.668,
+      "mean_length": 9.374
+    },
+    {
+      "seed": 303,
+      "mean_return": 0.57794375,
+      "survival_rate": 0.6605,
+      "mean_length": 8.866
+    },
+    {
+      "seed": 404,
+      "mean_return": 0.5844687500000001,
+      "survival_rate": 0.6755,
+      "mean_length": 9.6785
+    },
+    {
+      "seed": 505,
+      "mean_return": 0.5644925000000001,
+      "survival_rate": 0.65,
+      "mean_length": 9.1045
+    }
+  ],
+  "train_time_sec": 961.1943700313568,
+  "eval_time_sec": 6.017794847488403,
+  "checkpoint": "multiseed_repro/checkpoints/ddqn_seed0.pt"
+}

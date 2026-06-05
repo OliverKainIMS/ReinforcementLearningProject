@@ -1,0 +1,83 @@
+Gym has been unmaintained since 2022 and does not support NumPy 2.0 amongst other critical functionality.
+Please upgrade to Gymnasium, the maintained drop-in replacement of Gym, or contact the authors of your software and request that they upgrade.
+Users of this version of Gym should be able to simply replace 'import gym' with 'import gymnasium as gym' in the vast majority of cases.
+See the migration guide at https://gymnasium.farama.org/introduction/migration_guide/ for additional information.
+[ddqn_seed0] starting | episodes=50000 eval_episodes=2000
+make_sepsis_env | lam=0.02 → intensity penalty active
+make_sepsis_env | sofa_bias=5.0 → mean start SOFA: 9.02
+make_sepsis_env | lam=0.02 → intensity penalty active
+make_sepsis_env | sofa_bias=5.0 → mean start SOFA: 9.02
+[Double DQN] new best checkpoint @ ep 2000: survival=64.30% | return=0.5604
+make_sepsis_env | lam=0.02 → intensity penalty active
+make_sepsis_env | sofa_bias=5.0 → mean start SOFA: 9.02
+[Double DQN] new best checkpoint @ ep 4000: survival=66.60% | return=0.5635
+[Double DQN] Ep   5000/50000 | Return 0.569 | Survival 65.60% | ε=0.0500 | buffer= 45226
+make_sepsis_env | lam=0.02 → intensity penalty active
+make_sepsis_env | sofa_bias=5.0 → mean start SOFA: 9.02
+make_sepsis_env | lam=0.02 → intensity penalty active
+make_sepsis_env | sofa_bias=5.0 → mean start SOFA: 9.02
+[Double DQN] new best checkpoint @ ep 8000: survival=67.70% | return=0.5726
+make_sepsis_env | lam=0.02 → intensity penalty active
+make_sepsis_env | sofa_bias=5.0 → mean start SOFA: 9.02
+[Double DQN] Ep  10000/50000 | Return 0.574 | Survival 66.16% | ε=0.0500 | buffer= 91792
+make_sepsis_env | lam=0.02 → intensity penalty active
+make_sepsis_env | sofa_bias=5.0 → mean start SOFA: 9.02
+[Double DQN] new best checkpoint @ ep 12000: survival=68.00% | return=0.6032
+make_sepsis_env | lam=0.02 → intensity penalty active
+make_sepsis_env | sofa_bias=5.0 → mean start SOFA: 9.02
+[Double DQN] Ep  15000/50000 | Return 0.571 | Survival 66.12% | ε=0.0500 | buffer=100000
+make_sepsis_env | lam=0.02 → intensity penalty active
+make_sepsis_env | sofa_bias=5.0 → mean start SOFA: 9.02
+make_sepsis_env | lam=0.02 → intensity penalty active
+make_sepsis_env | sofa_bias=5.0 → mean start SOFA: 9.02
+make_sepsis_env | lam=0.02 → intensity penalty active
+make_sepsis_env | sofa_bias=5.0 → mean start SOFA: 9.02
+[Double DQN] Ep  20000/50000 | Return 0.566 | Survival 65.36% | ε=0.0500 | buffer=100000
+make_sepsis_env | lam=0.02 → intensity penalty active
+make_sepsis_env | sofa_bias=5.0 → mean start SOFA: 9.02
+make_sepsis_env | lam=0.02 → intensity penalty active
+make_sepsis_env | sofa_bias=5.0 → mean start SOFA: 9.02
+[Double DQN] Ep  25000/50000 | Return 0.576 | Survival 66.36% | ε=0.0500 | buffer=100000
+make_sepsis_env | lam=0.02 → intensity penalty active
+make_sepsis_env | sofa_bias=5.0 → mean start SOFA: 9.02
+make_sepsis_env | lam=0.02 → intensity penalty active
+make_sepsis_env | sofa_bias=5.0 → mean start SOFA: 9.02
+make_sepsis_env | lam=0.02 → intensity penalty active
+make_sepsis_env | sofa_bias=5.0 → mean start SOFA: 9.02
+[Double DQN] Ep  30000/50000 | Return 0.575 | Survival 66.34% | ε=0.0500 | buffer=100000
+make_sepsis_env | lam=0.02 → intensity penalty active
+make_sepsis_env | sofa_bias=5.0 → mean start SOFA: 9.02
+[Double DQN] new best checkpoint @ ep 32000: survival=68.80% | return=0.5961
+make_sepsis_env | lam=0.02 → intensity penalty active
+make_sepsis_env | sofa_bias=5.0 → mean start SOFA: 9.02
+[Double DQN] Ep  35000/50000 | Return 0.579 | Survival 66.60% | ε=0.0500 | buffer=100000
+make_sepsis_env | lam=0.02 → intensity penalty active
+make_sepsis_env | sofa_bias=5.0 → mean start SOFA: 9.02
+make_sepsis_env | lam=0.02 → intensity penalty active
+make_sepsis_env | sofa_bias=5.0 → mean start SOFA: 9.02
+make_sepsis_env | lam=0.02 → intensity penalty active
+make_sepsis_env | sofa_bias=5.0 → mean start SOFA: 9.02
+[Double DQN] Ep  40000/50000 | Return 0.565 | Survival 65.28% | ε=0.0500 | buffer=100000
+make_sepsis_env | lam=0.02 → intensity penalty active
+make_sepsis_env | sofa_bias=5.0 → mean start SOFA: 9.02
+make_sepsis_env | lam=0.02 → intensity penalty active
+make_sepsis_env | sofa_bias=5.0 → mean start SOFA: 9.02
+[Double DQN] Ep  45000/50000 | Return 0.587 | Survival 67.10% | ε=0.0500 | buffer=100000
+make_sepsis_env | lam=0.02 → intensity penalty active
+make_sepsis_env | sofa_bias=5.0 → mean start SOFA: 9.02
+make_sepsis_env | lam=0.02 → intensity penalty active
+make_sepsis_env | sofa_bias=5.0 → mean start SOFA: 9.02
+make_sepsis_env | lam=0.02 → intensity penalty active
+make_sepsis_env | sofa_bias=5.0 → mean start SOFA: 9.02
+[Double DQN] Ep  50000/50000 | Return 0.575 | Survival 66.12% | ε=0.0500 | buffer=100000
+make_sepsis_env | lam=0.02 → intensity penalty active
+make_sepsis_env | sofa_bias=5.0 → mean start SOFA: 9.02
+make_sepsis_env | lam=0.02 → intensity penalty active
+make_sepsis_env | sofa_bias=5.0 → mean start SOFA: 9.02
+make_sepsis_env | lam=0.02 → intensity penalty active
+make_sepsis_env | sofa_bias=5.0 → mean start SOFA: 9.02
+make_sepsis_env | lam=0.02 → intensity penalty active
+make_sepsis_env | sofa_bias=5.0 → mean start SOFA: 9.02
+make_sepsis_env | lam=0.02 → intensity penalty active
+make_sepsis_env | sofa_bias=5.0 → mean start SOFA: 9.02
+[ddqn_seed0] DONE | test survival=0.6647 return=0.5774 | val survival=0.6880 | train 16.0 min, eval 0.1 min

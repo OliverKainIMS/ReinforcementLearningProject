@@ -1,0 +1,15 @@
+Launching 10 runs | episodes=50000 eval_episodes=50000 max_workers=8
+Logs -> multiseed/logs/<algo>_seed<seed>.log
+[FAILED(rc=1)] ddqn_seed0 (24.9 min)
+[FAILED(rc=1)] ddqn_seed1 (25.2 min)
+[FAILED(rc=1)] ddqn_seed2 (24.2 min)
+[FAILED(rc=1)] ddqn_seed3 (25.4 min)
+[FAILED(rc=1)] ddqn_seed4 (24.9 min)
+[OK] ppo_seed0 (4.7 min)
+[OK] ppo_seed1 (5.1 min)
+[OK] ppo_seed2 (4.5 min)
+[OK] ppo_seed3 (4.6 min)
+[OK] ppo_seed4 (4.5 min)
+
+All runs finished in 25.4 min. Aggregating...
+No result JSONs found in multiseed/results/ - nothing to aggregate.

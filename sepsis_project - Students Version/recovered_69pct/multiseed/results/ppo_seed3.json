@@ -1,0 +1,42 @@
+{
+  "algo": "ppo",
+  "seed": 3,
+  "val_survival": 0.713,
+  "val_return": 0.67427,
+  "best_checkpoint_episode": 20000,
+  "test_mean_return": 0.6375276999999999,
+  "test_survival_rate": 0.676552,
+  "test_mean_length": 8.22184,
+  "per_seed": [
+    {
+      "seed": 101,
+      "mean_return": 0.6372253,
+      "survival_rate": 0.67622,
+      "mean_length": 8.20728
+    },
+    {
+      "seed": 202,
+      "mean_return": 0.6386585000000001,
+      "survival_rate": 0.67742,
+      "mean_length": 8.17076
+    },
+    {
+      "seed": 303,
+      "mean_return": 0.63502925,
+      "survival_rate": 0.67442,
+      "mean_length": 8.286
+    },
+    {
+      "seed": 404,
+      "mean_return": 0.63836105,
+      "survival_rate": 0.67714,
+      "mean_length": 8.21662
+    },
+    {
+      "seed": 505,
+      "mean_return": 0.6383643999999999,
+      "survival_rate": 0.67756,
+      "mean_length": 8.22854
+    }
+  ]
+}

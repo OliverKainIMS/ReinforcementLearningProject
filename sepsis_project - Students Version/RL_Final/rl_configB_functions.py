@@ -1043,7 +1043,7 @@ def run_optuna(
         seed_summaries = []
 
         for eval_seed in eval_seeds:
-            m = evaluate_policy_b(hist['agent'], n_episodes=eval_episodes, seed=eval_seed,)
+            m = evaluate_policy_b(hist['agent'], n_episodes=eval_episodes, seed=eval_seed)
             seed_summaries.append(m.summary())
         
         survival_rates = np.array([s['survival_rate'] for s in seed_summaries],dtype=float)

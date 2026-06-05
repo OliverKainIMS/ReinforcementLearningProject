@@ -1033,11 +1033,11 @@ def run_optuna(
         # train the agent with the trial's hyperparameters 
         if a in ('ddqn', 'double_dqn', 'double'):
             params = _suggest_dqn_params(trial, double=True)
-            hist = train_dqn(n_episodes=n_episodes_tune, double=True, seed=seed, device=device, select_best=False **params)
+            hist = train_dqn(n_episodes=n_episodes_tune, double=True, seed=seed, device=device, **params)
 
         elif a == 'ppo':
             params = _suggest_ppo_params(trial)
-            hist = train_ppo(n_episodes=n_episodes_tune, seed=seed, device=device, select_best=False **params)
+            hist = train_ppo(n_episodes=n_episodes_tune, seed=seed, device=device, **params)
 
         # evaluate the trained agent with multiple seeds and average the results 
         seed_summaries = []

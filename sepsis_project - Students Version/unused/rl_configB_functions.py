@@ -36,6 +36,10 @@ import numpy as np
 import pandas as pd
 import random
 import torch
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print("Using device:", DEVICE)
+if torch.cuda.is_available():
+    print(torch.cuda.get_device_name(0))
 import torch.nn as nn
 import torch.optim as optim
 from collections import deque
@@ -58,6 +62,9 @@ N_OBS     = 47    # dimensionality of the continuous observation vector
 N_ACTIONS = 25    # 5 vasopressor levels x 5 IV-fluid dose levels
 GAMMA     = 1.0   # no time discounting, following the ICU-Sepsis paper convention
 
+# --- Helper Function ---
+def get_default_device():
+    return "cuda" if torch.cuda.is_available() else "cpu"
 
 # --- Evaluation helpers ---
 
@@ -282,11 +289,10 @@ class DQNAgent:
         buffer_size=50_000,
         batch_size=64,
         target_update_freq=100,
-        tau=0.005,
         hidden1=128,
         hidden2=128,
         double=False,
-        device='cpu',
+        device=None,
     ):
         self.n_actions          = n_actions
         self.gamma              = gamma
@@ -294,10 +300,9 @@ class DQNAgent:
         self.epsilon_min        = epsilon_min
         self.batch_size         = batch_size
         self.target_update_freq = target_update_freq
-        self.tau                = tau
         self.buffer_size        = buffer_size
         self.double             = double
-        self.device             = torch.device(device)
+        self.device             = torch.device(device if device is not None else get_default_device())
 
         self.online_net = QNetwork(obs_dim, n_actions, hidden1, hidden2).to(self.device)
         self.target_net = QNetwork(obs_dim, n_actions, hidden1, hidden2).to(self.device)
@@ -365,13 +370,8 @@ class DQNAgent:
         self.optimizer.step()
 
         self.steps_done += 1
-        # Soft (Polyak) update every target_update_freq steps.
-        # Blending τ << 1 keeps the target changing slowly and smoothly,
-        # preventing the abrupt target jumps that cause Q-value instability.
         if self.steps_done % self.target_update_freq == 0:
-            for tp, op in zip(self.target_net.parameters(),
-                               self.online_net.parameters()):
-                tp.data.copy_(self.tau * op.data + (1.0 - self.tau) * tp.data)
+            self.target_net.load_state_dict(self.online_net.state_dict())
 
         return float(loss.item())
 
@@ -413,7 +413,7 @@ class PPOAgent:
         hidden1=128,
         hidden2=128,
         max_grad_norm=0.5,
-        device='cpu',
+        device=None,
     ):
         self.gamma          = gamma
         self.gae_lambda     = gae_lambda
@@ -424,7 +424,7 @@ class PPOAgent:
         self.update_epochs  = update_epochs
         self.minibatch_size = minibatch_size
         self.max_grad_norm  = max_grad_norm
-        self.device         = torch.device(device)
+        self.device         = torch.device(device if device is not None else get_default_device())
 
         self.net       = ActorCritic(obs_dim, n_actions, hidden1, hidden2).to(self.device)
         self.optimizer = optim.Adam(self.net.parameters(), lr=lr)
@@ -542,25 +542,12 @@ def train_dqn(
     hidden2=128,
     learning_starts=1000,
     seed=SEED,
-    device='cpu',
+    device=None,
     verbose=False,
     log_every=1000,
-    select_best=True,
-    checkpoint_every=None,
-    checkpoint_eval_episodes=1000,
-    checkpoint_val_seed=987_654,
 ):
     """
     Train a DQN or Double DQN agent on the clinical ICU-Sepsis environment.
-
-    Best-checkpoint selection
-    -------------------------
-    With select_best=True, every checkpoint_every episodes the policy is
-    greedily evaluated on a HELD-OUT validation seed (checkpoint_val_seed,
-    deliberately different from the reporting seeds) and the weights with the
-    best (survival, return) are kept. The returned agent is that best
-    checkpoint, NOT the final weights — this captures the peak the unstable
-    Double DQN reaches mid-training instead of the degraded final weights.
 
     Parameters
     ----------
@@ -616,12 +603,6 @@ def train_dqn(
     noisy_eps, missing_eps, acute_eps = [], [], []
     total_steps = 0
 
-    # Best-checkpoint bookkeeping (priority: survival, then mean return).
-    if checkpoint_every is None:
-        checkpoint_every = max(1, n_episodes // 25)
-    best_state, best_score, best_ep = None, (-np.inf, -np.inf), None
-    ckpt_episodes, ckpt_survival, ckpt_return = [], [], []
-
     for ep in range(n_episodes):
         # Linear epsilon decay (clipped at epsilon_min)
         agent.epsilon = max(
@@ -666,31 +647,6 @@ def train_dqn(
         missing_eps.append(ep_missing)
         acute_eps.append(ep_acute)
 
-        # --- best-checkpoint selection on a held-out validation seed ---
-        if select_best and (ep + 1) % checkpoint_every == 0:
-            # Save RNG state so the validation eval does not perturb training.
-            np_state, py_state = np.random.get_state(), random.getstate()
-            tor_state = torch.random.get_rng_state()
-
-            m = evaluate_policy_b(agent, n_episodes=checkpoint_eval_episodes,
-                                  seed=checkpoint_val_seed).summary()
-
-            np.random.set_state(np_state); random.setstate(py_state)
-            torch.random.set_rng_state(tor_state)
-
-            score = (m['survival_rate'], m['mean_return'])
-            ckpt_episodes.append(ep + 1)
-            ckpt_survival.append(m['survival_rate'])
-            ckpt_return.append(m['mean_return'])
-            if score > best_score:          # priority 1: survival, 2: return
-                best_score = score
-                best_ep    = ep + 1
-                best_state = {k: v.detach().cpu().clone()
-                              for k, v in agent.online_net.state_dict().items()}
-                if verbose:
-                    print(f"[{algo_name}] new best checkpoint @ ep {ep+1}: "
-                          f"survival={score[0]:.2%} | return={score[1]:.4f}")
-
         if verbose and (ep + 1) % log_every == 0:
             recent_ret  = np.mean(returns[-log_every:])
             recent_surv = np.mean(survivals[-log_every:])
@@ -702,12 +658,6 @@ def train_dqn(
 
     env.close()
 
-    # Restore the best checkpoint: last weights are rarely the best for an
-    # unstable Double DQN (captures the ~peak instead of the degraded final).
-    if select_best and best_state is not None:
-        agent.online_net.load_state_dict(best_state)
-        agent.target_net.load_state_dict(best_state)
-
     return {
         'agent':       agent,
         'returns':     returns,
@@ -718,11 +668,6 @@ def train_dqn(
         'noisy_eps':   noisy_eps,
         'missing_eps': missing_eps,
         'acute_eps':   acute_eps,
-        'best_checkpoint_episode': best_ep,
-        'best_checkpoint_score':   best_score,
-        'ckpt_episodes': ckpt_episodes,
-        'ckpt_survival': ckpt_survival,
-        'ckpt_return':   ckpt_return,
     }
 
 
@@ -740,21 +685,12 @@ def train_ppo(
     hidden1=128,
     hidden2=128,
     seed=SEED,
-    device='cpu',
+    device=None,
     verbose=False,
     log_every=1000,
-    select_best=True,
-    checkpoint_every=None,
-    checkpoint_eval_episodes=1000,
-    checkpoint_val_seed=987_654,
 ):
     """
     Train a PPO agent on the clinical ICU-Sepsis environment.
-
-    Best-checkpoint selection mirrors train_dqn: every checkpoint_every
-    completed episodes the policy is greedily evaluated on a held-out
-    validation seed and the best (survival, return) weights are kept and
-    returned instead of the final ones.
 
     PPO is on-policy: no replay buffer and no target network. It collects
     rollout_length fresh steps, computes GAE advantages, and then runs
@@ -790,12 +726,6 @@ def train_ppo(
     ep_missing = info.get('missing_features') is not None
     ep_acute   = False
     last_update = {'policy_loss': 0.0, 'entropy': 0.0}
-
-    # Best-checkpoint bookkeeping (priority: survival, then mean return).
-    if checkpoint_every is None:
-        checkpoint_every = max(1, n_episodes // 25)
-    best_state, best_score, best_ep = None, (-np.inf, -np.inf), None
-    ckpt_episodes, ckpt_survival, ckpt_return = [], [], []
 
     while len(returns) < n_episodes:
         # --- collect one on-policy rollout ---
@@ -838,27 +768,6 @@ def train_ppo(
                         f"entropy={last_update['entropy']:.3f}"
                     )
 
-                # --- best-checkpoint selection on a held-out validation seed ---
-                if select_best and len(returns) % checkpoint_every == 0:
-                    np_state, py_state = np.random.get_state(), random.getstate()
-                    tor_state = torch.random.get_rng_state()
-                    m = evaluate_policy_b(agent, n_episodes=checkpoint_eval_episodes,
-                                          seed=checkpoint_val_seed).summary()
-                    np.random.set_state(np_state); random.setstate(py_state)
-                    torch.random.set_rng_state(tor_state)
-                    score = (m['survival_rate'], m['mean_return'])
-                    ckpt_episodes.append(len(returns))
-                    ckpt_survival.append(m['survival_rate'])
-                    ckpt_return.append(m['mean_return'])
-                    if score > best_score:
-                        best_score = score
-                        best_ep    = len(returns)
-                        best_state = {k: v.detach().cpu().clone()
-                                      for k, v in agent.net.state_dict().items()}
-                        if verbose:
-                            print(f"[PPO] new best checkpoint @ ep {len(returns)}: "
-                                  f"survival={score[0]:.2%} | return={score[1]:.4f}")
-
                 if len(returns) >= n_episodes:
                     break
 
@@ -894,9 +803,6 @@ def train_ppo(
 
     env.close()
 
-    if select_best and best_state is not None:
-        agent.net.load_state_dict(best_state)
-
     return {
         'agent':       agent,
         'returns':     returns[:n_episodes],
@@ -908,11 +814,6 @@ def train_ppo(
         'missing_eps': missing_eps[:n_episodes],
         'acute_eps':   acute_eps[:n_episodes],
         'ppo_updates': ppo_updates,
-        'best_checkpoint_episode': best_ep,
-        'best_checkpoint_score':   best_score,
-        'ckpt_episodes': ckpt_episodes,
-        'ckpt_survival': ckpt_survival,
-        'ckpt_return':   ckpt_return,
     }
 
 
@@ -974,7 +875,7 @@ def run_optuna(
     eval_seeds=None,
     metric='combined',
     seed=SEED,
-    device='cpu',
+    device=None,
     verbose=False,
 ):
     """
@@ -1043,7 +944,7 @@ def run_optuna(
         seed_summaries = []
 
         for eval_seed in eval_seeds:
-            m = evaluate_policy_b(hist['agent'], n_episodes=eval_episodes, seed=eval_seed)
+            m = evaluate_policy_b(hist['agent'], n_episodes=eval_episodes, seed=eval_seed,)
             seed_summaries.append(m.summary())
         
         survival_rates = np.array([s['survival_rate'] for s in seed_summaries],dtype=float)

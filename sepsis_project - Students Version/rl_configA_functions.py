@@ -238,7 +238,7 @@ def policy_evaluation(policy, P, R, gamma=GAMMA, theta=1e-8, max_iterations=1000
 
     return V, delta_history
 
-# 2. Implement the value iteration algorithm.
+# 3. Implement the value iteration algorithm.
 
 def value_iteration(P, R, gamma=GAMMA, theta=1e-8, max_iterations=1000):
     """
